@@ -44,7 +44,7 @@ class MainApp extends StatelessWidget {
           ),
           iconTheme: IconThemeData(color: Colors.white),
         ),
-        // Tema dos botões elevados
+        // Tema dos botões elevados 
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.red.shade600,
