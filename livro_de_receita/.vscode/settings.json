@@ -1,0 +1,9 @@
+{
+    "dart.flutterSdkPath": null,
+    "dart.debugExternalPackageLibraries": false,
+    "dart.debugSdkLibraries": false,
+    "dart.evaluateGettersInDebugViews": true,
+    "dart.previewFlutterUiGuides": true,
+    "dart.flutterHotReloadOnSave": true,
+    "dart.hotReloadOnSave": true
+}
