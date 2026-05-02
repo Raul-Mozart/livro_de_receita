@@ -38,11 +38,20 @@ class AppbarCustomizado extends StatelessWidget implements PreferredSizeWidget {
           ? [
               IconButton(
                 icon: const Icon(Icons.add),
-                onPressed: () {
-                  Navigator.push(
+                onPressed: () async {
+                  final result = await Navigator.push(
                     context,
                     MaterialPageRoute(builder: (context) => const Cadastro()),
                   );
+                  // Se retornou true, precisamos de um callback no main ou recarregar
+                  // Aqui no appbar genérico é difícil forçar reload da tela principal 
+                  // sem uma função callback. No entanto, se o main.dart tiver puxado o appbar,
+                  // nós podemos passar um callback.
+                  // Uma alternativa melhor para reload: 
+                  if (result == true) {
+                    Navigator.pushReplacementNamed(context, '/'); 
+                    // Assumindo que a rota inicial é a do livro de receitas
+                  }
                 },
               ),
             ]

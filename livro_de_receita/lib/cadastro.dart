@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
+import 'dart:convert';
+import 'package:path_provider/path_provider.dart';
+import 'package:image_picker/image_picker.dart';
 import 'appbar.dart';
 import 'package:livro_de_receita/Infra/models/receita.dart';
 import 'package:livro_de_receita/Infra/models/ingrediente.dart';
@@ -26,6 +30,7 @@ class _CadastroState extends State<Cadastro> {
   final List<Ingrediente> _ingredientes = [];
   final List<PassoPreparo> _passos = [];
   List<Categoria> _categorias = [];
+  Set<String> _unidadesSalvas = {}; // Histórico de unidades salvas
   final List<Map<String, String>> _imagensDisponiveis = [
     {'path': 'assets/images/receita_default.png', 'nome': 'Padrão'},
     {'path': 'assets/images/lanche.png', 'nome': 'Lanche'},
@@ -45,10 +50,87 @@ class _CadastroState extends State<Cadastro> {
   @override
   void initState() {
     super.initState();
-    // Carrega categorias após o build inicial
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      _carregarCategorias();
+    // Carrega categorias e unidades após o build inicial
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      await _carregarCategorias();
+      await _carregarUnidadesSalvas();
+      await _recuperarRascunho(); // Traz de volta os passos/ingredientes digitados
+      // Em dispositivos com pouca RAM (ex: Moto G), o OS mata o app enquanto a câmera tira foto.
+      // Quando o app volta, nós recuperamos a foto tirada e a amarramos de volta.
+      _recuperarDeLostData();
     });
+  }
+
+  // MÉTODOS DE BLINDAGEM DE DADOS (RASCUNHO)
+  Future<void> _salvarRascunho() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/rascunho_receita.json');
+      final dados = {
+        'nome': _nomeController.text,
+        'categoriaId': _categoriaId,
+        'ingredientes': _ingredientes.map((i) => {'nome': i.nome, 'quantidade': i.quantidade, 'unidadeMedida': i.unidadeMedida}).toList(),
+        'passos': _passos.map((p) => {'ordem': p.ordem, 'descricao': p.descricao}).toList(),
+      };
+      await file.writeAsString(jsonEncode(dados));
+    } catch (e) {}
+  }
+
+  Future<void> _recuperarRascunho() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/rascunho_receita.json');
+      if (await file.exists()) {
+        final dados = jsonDecode(await file.readAsString());
+        if (mounted) {
+          setState(() {
+            if (dados['nome'] != null && _nomeController.text.isEmpty) _nomeController.text = dados['nome'];
+            if (dados['categoriaId'] != null) _categoriaId = dados['categoriaId'];
+            if (dados['ingredientes'] != null && _ingredientes.isEmpty) {
+              for (var i in dados['ingredientes']) {
+                _ingredientes.add(Ingrediente(nome: i['nome'], quantidade: i['quantidade'], unidadeMedida: i['unidadeMedida'], receitaId: 0));
+              }
+            }
+            if (dados['passos'] != null && _passos.isEmpty) {
+              for (var p in dados['passos']) {
+                _passos.add(PassoPreparo(ordem: p['ordem'], descricao: p['descricao'], receitaId: 0, feito: false));
+              }
+            }
+          });
+        }
+      }
+    } catch (e) {}
+  }
+
+  Future<void> _apagarRascunho() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/rascunho_receita.json');
+      if (await file.exists()) await file.delete();
+    } catch (e) {}
+  }
+
+  // Método nativo do package image_picker exclusivo para lidar com 
+  // celulares Android que finalizam apps em background: 
+  Future<void> _recuperarDeLostData() async {
+    final picker = ImagePicker();
+    final response = await picker.retrieveLostData();
+    if (response.isEmpty) {
+      return;
+    }
+    if (response.file != null && mounted) {
+      setState(() {
+        _imagemAsset = response.file!.path;
+      });
+      // Um pequeno aviso de que a foto foi recuperada após o sistema fechar a memória
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: const Text('Foto recuperada com sucesso!'),
+          backgroundColor: Colors.green.shade600,
+          duration: const Duration(seconds: 2),
+        ),
+      );
+    } 
   }
 
   @override
@@ -83,110 +165,105 @@ class _CadastroState extends State<Cadastro> {
     }
   }
 
+  // Gerenciamento das Unidades de Medida
+  Future<void> _carregarUnidadesSalvas() async {
+    try {
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/unidades_salvas.json');
+      if (await file.exists()) {
+        final List<dynamic> dados = jsonDecode(await file.readAsString());
+        setState(() {
+          _unidadesSalvas = dados.map((e) => e.toString()).toSet();
+        });
+      }
+    } catch (e) {}
+  }
+
+  Future<void> _salvarUnidade(String unidade) async {
+    final nomeLimpo = unidade.trim();
+    if (nomeLimpo.isEmpty) return;
+    try {
+      setState(() {
+        _unidadesSalvas.add(nomeLimpo);
+      });
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/unidades_salvas.json');
+      await file.writeAsString(jsonEncode(_unidadesSalvas.toList()));
+    } catch (e) {}
+  }
+
+  Future<void> _excluirUnidadeSalva(String unidade) async {
+    try {
+      setState(() {
+        _unidadesSalvas.remove(unidade);
+      });
+      final dir = await getApplicationDocumentsDirectory();
+      final file = File('${dir.path}/unidades_salvas.json');
+      await file.writeAsString(jsonEncode(_unidadesSalvas.toList()));
+    } catch (e) {}
+  }
+
   void _removerImagem() {
     setState(() {
       _imagemAsset = null;
     });
   }
 
-  void _selecionarImagemPreDefinida() async {
-    await showDialog(
-      context: context,
-      builder:
-          (context) => AlertDialog(
-            backgroundColor: Colors.white,
-            title: const Text(
-              'Selecionar Imagem da Receita',
-              style: TextStyle(color: Colors.black),
-            ),
-            content: SizedBox(
-              width: double.maxFinite,
-              height: 300,
-              child: GridView.builder(
-                gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                  crossAxisCount: 2,
-                  crossAxisSpacing: 10,
-                  mainAxisSpacing: 10,
-                  childAspectRatio: 1.0,
-                ),
-                itemCount: _imagensDisponiveis.length,
-                itemBuilder: (context, index) {
-                  final imagem = _imagensDisponiveis[index];
-                  return GestureDetector(
-                    onTap: () {
-                      setState(() {
-                        _imagemAsset = imagem['path'];
-                      });
-                      Navigator.pop(context);
-                    },
-                    child: Container(
-                      decoration: BoxDecoration(
-                        border: Border.all(
-                          color:
-                              _imagemAsset == imagem['path']
-                                  ? Colors.red.shade600
-                                  : Colors.red.shade200,
-                          width: _imagemAsset == imagem['path'] ? 3 : 1,
-                        ),
-                        borderRadius: BorderRadius.circular(8),
-                        color: Colors.white,
-                      ),
-                      child: Column(
-                        children: [
-                          Expanded(
-                            child: ClipRRect(
-                              borderRadius: const BorderRadius.vertical(
-                                top: Radius.circular(8),
-                              ),
-                              child: Image.asset(
-                                imagem['path']!,
-                                fit: BoxFit.cover,
-                                width: double.infinity,
-                                errorBuilder: (context, error, stackTrace) {
-                                  return Center(
-                                    child: Icon(
-                                      Icons.restaurant,
-                                      size: 40,
-                                      color: Colors.red.shade600,
-                                    ),
-                                  );
-                                },
-                              ),
-                            ),
-                          ),
-                          Padding(
-                            padding: const EdgeInsets.all(8.0),
-                            child: Text(
-                              imagem['nome']!,
-                              textAlign: TextAlign.center,
-                              style: TextStyle(
-                                fontSize: 12,
-                                fontWeight:
-                                    _imagemAsset == imagem['path']
-                                        ? FontWeight.w600
-                                        : FontWeight.normal,
-                                color: Colors.black,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  );
-                },
-              ),
-            ),
-            actions: [
-              TextButton(
-                onPressed: () => Navigator.pop(context),
-                child: Text(
-                  'Cancelar',
-                  style: TextStyle(color: Colors.grey.shade600),
-                ),
-              ),
-            ],
+  Future<void> _tirarFoto() async {
+    await _salvarRascunho(); // Salva o processo inteiro escrito até aqui
+    try {
+      final picker = ImagePicker();
+      // Reduzindo as configurações de captura ao MÍNIMO estritamente essencial para impedir 
+      // que o SO reinicie o app no Moto G50. Adicionado requestFullMetadata: false 
+      // para pular o processamento pesado de EXIF que causa OOM no Android.
+      final pickedFile = await picker.pickImage(
+        source: ImageSource.camera,
+        imageQuality: 70, // Qualidade média/alta que não fica granulada
+        maxWidth: 1200, // Tamanho grande o suficiente para não perder pixels na tela
+        maxHeight: 1200,
+        requestFullMetadata: false, // <-- A grande chave contra o travamento detalhado
+      );
+      
+      if (pickedFile != null && mounted) {
+        setState(() {
+          _imagemAsset = pickedFile.path;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao capturar foto: $e'),
+            backgroundColor: Colors.red.shade600,
           ),
-    );
+        );
+      }
+    }
+  }
+
+  Future<void> _selecionarGaleria() async {
+    await _salvarRascunho(); // Salva prevenção
+    try {
+      final picker = ImagePicker();
+      final pickedFile = await picker.pickImage(
+        source: ImageSource.gallery,
+        imageQuality: 70, // Tamanho amigável, qualidade média sem estourar nada
+      );
+      if (pickedFile != null && mounted) {
+        setState(() {
+          _imagemAsset = pickedFile.path;
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao abrir a galeria: $e'),
+            backgroundColor: Colors.red.shade600,
+          ),
+        );
+      }
+    }
   }
 
   void _adicionarIngrediente(String nome, double quantidade, String unidade) {
@@ -209,15 +286,24 @@ class _CadastroState extends State<Cadastro> {
   }
 
   void _adicionarPasso(String descricao) {
+    if (descricao.trim().isEmpty) return;
+    
+    // Separa a descrição por quebras de linha para criar múltiplos passos de uma vez
+    final linhas = descricao.split('\n');
     setState(() {
-      _passos.add(
-        PassoPreparo(
-          ordem: _passos.length + 1,
-          descricao: descricao,
-          receitaId: 0,
-          feito: false,
-        ),
-      );
+      for (var linha in linhas) {
+        final txt = linha.trim();
+        if (txt.isNotEmpty) {
+          _passos.add(
+            PassoPreparo(
+              ordem: _passos.length + 1,
+              descricao: txt,
+              receitaId: 0,
+              feito: false,
+            ),
+          );
+        }
+      }
     });
   }
 
@@ -277,6 +363,7 @@ class _CadastroState extends State<Cadastro> {
         final passoComId = passo.copyWith(receitaId: receitaId);
         await PassoPreparoDao.insert(passoComId);
       }
+      await _apagarRascunho(); // Limpa rascunho após salvar receita com sucesso
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -388,7 +475,7 @@ class _CadastroState extends State<Cadastro> {
                     const SizedBox(height: 12),
                     if (_imagemAsset != null)
                       Container(
-                        height: 200,
+                        height: 250,
                         width: double.infinity,
                         decoration: BoxDecoration(
                           borderRadius: BorderRadius.circular(8),
@@ -400,40 +487,55 @@ class _CadastroState extends State<Cadastro> {
                         ),
                         child: ClipRRect(
                           borderRadius: BorderRadius.circular(8),
-                          child: Image.asset(
-                            _imagemAsset!,
-                            fit: BoxFit.cover,
-                            errorBuilder: (context, error, stackTrace) {
-                              return Column(
-                                mainAxisAlignment: MainAxisAlignment.center,
-                                children: [
-                                  Icon(
-                                    Icons.restaurant,
-                                    size: 80,
-                                    color: Colors.red.shade600,
-                                  ),
-                                  const SizedBox(height: 8),
-                                  Text(
-                                    _imagensDisponiveis.firstWhere(
-                                      (img) => img['path'] == _imagemAsset,
-                                      orElse:
-                                          () => {'nome': 'Imagem Selecionada'},
-                                    )['nome']!,
-                                    style: const TextStyle(
-                                      fontSize: 16,
-                                      fontWeight: FontWeight.w500,
-                                      color: Colors.black,
-                                    ),
-                                  ),
-                                ],
-                              );
-                            },
-                          ),
+                          child: _imagemAsset!.startsWith('assets/')
+                              ? Image.asset(
+                                  _imagemAsset!,
+                                  fit: BoxFit.cover,
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.restaurant,
+                                          size: 80,
+                                          color: Colors.red.shade600,
+                                        ),
+                                        const SizedBox(height: 8),
+                                        Text(
+                                          _imagensDisponiveis.firstWhere(
+                                            (img) => img['path'] == _imagemAsset,
+                                            orElse: () => {'nome': 'Imagem Selecionada'},
+                                          )['nome']!,
+                                          style: const TextStyle(
+                                            fontSize: 16,
+                                            fontWeight: FontWeight.w500,
+                                            color: Colors.black,
+                                          ),
+                                        ),
+                                      ],
+                                    );
+                                  },
+                                )
+                              : Image.file(
+                                  File(_imagemAsset!),
+                                  fit: BoxFit.cover,
+                                  cacheWidth: 800, // Ajuste para renderizar bem dimensionado
+                                  filterQuality: FilterQuality.medium, // Melhora a granulação
+                                  errorBuilder: (context, error, stackTrace) {
+                                    return Center(
+                                      child: Icon(
+                                        Icons.restaurant,
+                                        size: 80,
+                                        color: Colors.red.shade600,
+                                      ),
+                                    );
+                                  },
+                                ),
                         ),
                       )
                     else
                       Container(
-                        height: 200,
+                        height: 250,
                         width: double.infinity,
                         decoration: BoxDecoration(
                           color: Colors.grey.shade100,
@@ -457,18 +559,34 @@ class _CadastroState extends State<Cadastro> {
                         ),
                       ),
                     const SizedBox(height: 12),
-                    SizedBox(
-                      width: double.infinity,
-                      child: ElevatedButton.icon(
-                        onPressed: _selecionarImagemPreDefinida,
-                        icon: const Icon(Icons.collections),
-                        label: const Text('Selecionar Imagem'),
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: Colors.red.shade600,
-                          foregroundColor: Colors.white,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _selecionarGaleria,
+                            icon: const Icon(Icons.photo_library),
+                            label: const Text('Galeria'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red.shade600,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                          ),
                         ),
-                      ),
+                        const SizedBox(width: 8),
+                        Expanded(
+                          child: ElevatedButton.icon(
+                            onPressed: _tirarFoto,
+                            icon: const Icon(Icons.camera_alt),
+                            label: const Text('Tirar Foto'),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: Colors.red.shade600,
+                              foregroundColor: Colors.white,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
@@ -593,28 +711,56 @@ class _CadastroState extends State<Cadastro> {
                                       ),
                                     ),
                                     const SizedBox(height: 8),
-                                    TextField(
-                                      controller: unidadeController,
-                                      decoration: InputDecoration(
-                                        labelText:
-                                            'Unidade (ex: kg, ml, xícaras)',
-                                        labelStyle: TextStyle(
-                                          color: Colors.grey.shade700,
-                                        ),
-                                        border: OutlineInputBorder(
-                                          borderSide: BorderSide(
-                                            color: Colors.red.shade300,
-                                          ),
-                                        ),
-                                        focusedBorder: OutlineInputBorder(
-                                          borderSide: BorderSide(
-                                            color: Colors.red.shade600,
-                                          ),
-                                        ),
-                                      ),
-                                      style: const TextStyle(
-                                        color: Colors.black,
-                                      ),
+                                    StatefulBuilder(
+                                      builder: (context, setDialogState) {
+                                        return Column(
+                                          crossAxisAlignment: CrossAxisAlignment.start,
+                                          children: [
+                                            TextField(
+                                              controller: unidadeController,
+                                              decoration: InputDecoration(
+                                                labelText: 'Unidade (ex: kg, ml, xícaras)',
+                                                labelStyle: TextStyle(
+                                                  color: Colors.grey.shade700,
+                                                ),
+                                                border: OutlineInputBorder(
+                                                  borderSide: BorderSide(
+                                                    color: Colors.red.shade300,
+                                                  ),
+                                                ),
+                                                focusedBorder: OutlineInputBorder(
+                                                  borderSide: BorderSide(
+                                                    color: Colors.red.shade600,
+                                                  ),
+                                                ),
+                                              ),
+                                              style: const TextStyle(
+                                                color: Colors.black,
+                                              ),
+                                            ),
+                                            if (_unidadesSalvas.isNotEmpty) ...[
+                                              const SizedBox(height: 8),
+                                              const Text('Unidades recentes:', style: TextStyle(fontSize: 12, color: Colors.grey)),
+                                              const SizedBox(height: 4),
+                                              Wrap(
+                                                spacing: 8,
+                                                runSpacing: -8,
+                                                children: _unidadesSalvas.map((u) => InputChip(
+                                                  label: Text(u, style: const TextStyle(fontSize: 12)),
+                                                  onPressed: () {
+                                                    unidadeController.text = u;
+                                                  },
+                                                  onDeleted: () async {
+                                                    await _excluirUnidadeSalva(u);
+                                                    setDialogState(() {}); // Atualiza UI do Dialog
+                                                  },
+                                                  deleteIcon: const Icon(Icons.close, size: 14),
+                                                )).toList(),
+                                              ),
+                                            ]
+                                          ],
+                                        );
+                                      }
                                     ),
                                   ],
                                 ),
@@ -631,6 +777,7 @@ class _CadastroState extends State<Cadastro> {
                                   TextButton(
                                     onPressed: () {
                                       if (nomeController.text.isNotEmpty) {
+                                        _salvarUnidade(unidadeController.text);
                                         _adicionarIngrediente(
                                           nomeController.text,
                                           double.tryParse(

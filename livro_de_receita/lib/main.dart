@@ -26,8 +26,11 @@ class MainApp extends StatelessWidget {
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
-      home: LivroDeReceitas(),
-      routes: {'/cadastro': (context) => const Cadastro()},
+      initialRoute: '/',
+      routes: {
+        '/': (context) => LivroDeReceitas(),
+        '/cadastro': (context) => const Cadastro(),
+      },
       // Configuração do tema global do app
       theme: ThemeData(
         primarySwatch: Colors.red,

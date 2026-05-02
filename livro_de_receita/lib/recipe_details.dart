@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
 import 'Infra/data/dao/receita_dao.dart';
 import 'Infra/data/dao/ingrediente_dao.dart';
 import 'Infra/data/dao/passo_preparo_dao.dart';
@@ -208,16 +209,19 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
 
   ImageProvider _getImageProvider(String imageUrl) {
     try {
+      if (imageUrl.isEmpty) {
+        return const AssetImage('assets/images/receita_default.png');
+      }
       // Se for asset, usa AssetImage
       if (imageUrl.startsWith('assets/')) {
         return AssetImage(imageUrl);
       } else {
-        // Caso contrário, usa imagem padrão
-        return AssetImage('assets/images/receita_default.png');
+        // Caso contrário, é uma foto local (câmera/galeria)
+        return FileImage(File(imageUrl));
       }
     } catch (e) {
       // Em caso de erro, sempre usa imagem padrão
-      return AssetImage('assets/images/receita_default.png');
+      return const AssetImage('assets/images/receita_default.png');
     }
   }
 

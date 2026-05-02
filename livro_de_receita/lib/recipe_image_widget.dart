@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:io';
 
 // Widget personalizado para exibir imagens de receitas de forma consistente
 class RecipeImageWidget extends StatelessWidget {
@@ -47,8 +48,10 @@ class RecipeImageWidget extends StatelessWidget {
   Widget build(BuildContext context) {
     // Verifica se não há caminho de imagem especificado
     if (imagePath == null || imagePath!.isEmpty) {
-      return _buildFallback(); 
+      return _buildFallback();
     }
+
+    final isAsset = imagePath!.startsWith('assets/');
 
     // Constrói o widget com a imagem
     return Container(
@@ -57,14 +60,26 @@ class RecipeImageWidget extends StatelessWidget {
       decoration: BoxDecoration(borderRadius: borderRadius),
       child: ClipRRect(
         borderRadius: borderRadius ?? BorderRadius.zero,
-        child: Image.asset(
+        child: isAsset ? Image.asset(
           imagePath!, // Carrega a imagem do asset
           width: width,
           height: height,
           fit: fit,
+          cacheWidth: 800,
+          filterQuality: FilterQuality.medium,
           // Define o que fazer quando há erro ao carregar a imagem
           errorBuilder: (context, error, stackTrace) {
-            return _buildFallback(); 
+            return _buildFallback();
+          },
+        ) : Image.file(
+          File(imagePath!), // Carrega a imagem do arquivo
+          width: width,
+          height: height,
+          fit: fit,
+          cacheWidth: 800, // Limite confortável para qualidade
+          filterQuality: FilterQuality.medium, // Reduz serrilhado/granulação
+          errorBuilder: (context, error, stackTrace) {
+            return _buildFallback();
           },
         ),
       ),
