@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'cadastro.dart';
 import 'Infra/data/dao/receita_dao.dart';
 import 'Infra/data/dao/ingrediente_dao.dart';
 import 'Infra/data/dao/passo_preparo_dao.dart';
@@ -32,11 +33,17 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
   late List<bool> _instructionChecked;
   List<String> _loadedIngredients = [];
   List<String> _loadedInstructions = [];
+  late String _titulo;
+  late String _imageUrl;
+  bool _hasChanges = false;
+  bool _allowPop = false;
   bool _isLoading = true;
   
   @override
   void initState() {
     super.initState();
+    _titulo = widget.title;
+    _imageUrl = widget.imageUrl;
     // Carrega os detalhes da receita ao inicializar
     _loadRecipeDetails();
   }
@@ -45,6 +52,11 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
     try {
       // Se tem ID da receita, carrega dados do banco
       if (widget.recipeId != null) {
+        final receita = await ReceitaDao.getById(widget.recipeId!);
+        if (receita != null) {
+          _titulo = receita.titulo;
+          _imageUrl = receita.imagem ?? 'assets/images/receita_default.png';
+        }
         final ingredientes = await IngredienteDao.getAllByReceita(
           widget.recipeId!,
         );
@@ -61,6 +73,8 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         // Se não tem ID, usa dados passados por parâmetro
         _loadedIngredients = widget.ingredients;
         _loadedInstructions = widget.instructions;
+        _titulo = widget.title;
+        _imageUrl = widget.imageUrl;
       }
       
       // Inicializa todas as checkboxes como desmarcadas
@@ -81,6 +95,8 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
       // Em caso de erro, usa dados passados por parâmetro
       _loadedIngredients = widget.ingredients;
       _loadedInstructions = widget.instructions;
+      _titulo = widget.title;
+      _imageUrl = widget.imageUrl;
       
       // Inicializa checkboxes mesmo com erro
       _ingredientChecked = List.generate(
@@ -122,7 +138,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
             child: ListBody(
               children: <Widget>[
                 Text(
-                  'Tem certeza que deseja excluir a receita "${widget.title}"?',
+                  'Tem certeza que deseja excluir a receita "${_titulo}"?',
                 ),
                 SizedBox(height: 8),
                 // Aviso sobre irreversibilidade
@@ -188,6 +204,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         ),
       );
       
+      _allowPop = true;
       Navigator.of(context).pop(true);
     } catch (e) {
       // Verifica se a tela ainda está ativa
@@ -227,182 +244,212 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(
-        leading: IconButton(
-          icon: Icon(Icons.arrow_back),
-          onPressed: () => Navigator.pop(context),
+    return WillPopScope(
+      onWillPop: () async {
+        if (_allowPop) {
+          return true;
+        }
+        Navigator.pop(context, _hasChanges);
+        return false;
+      },
+      child: Scaffold(
+        appBar: AppBar(
+          leading: IconButton(
+            icon: Icon(Icons.arrow_back),
+            onPressed: () => Navigator.pop(context, _hasChanges),
+          ),
+          title: Text(_titulo),
+          centerTitle: true,
+          backgroundColor: Colors.red.shade600,
+          actions: [
+            if (widget.recipeId != null)
+              IconButton(
+                icon: Icon(Icons.edit),
+                onPressed: () async {
+                  final result = await Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder:
+                          (context) => Cadastro(recipeId: widget.recipeId),
+                    ),
+                  );
+                  if (result == true && mounted) {
+                    setState(() {
+                      _isLoading = true;
+                      _hasChanges = true;
+                    });
+                    await _loadRecipeDetails();
+                  }
+                },
+                tooltip: 'Editar receita',
+              ),
+            // Botão de exclusão
+            if (widget.recipeId != null)
+              IconButton(
+                icon: Icon(Icons.delete),
+                onPressed: _mostrarDialogoConfirmacao,
+                tooltip: 'Excluir receita',
+              ),
+          ],
         ),
-        title: Text(widget.title),
-        centerTitle: true,
-        backgroundColor: Colors.red.shade600,
-        actions: [
-          // Botão de exclusão
-          if (widget.recipeId != null)
-            IconButton(
-              icon: Icon(Icons.delete),
-              onPressed: _mostrarDialogoConfirmacao,
-              tooltip: 'Excluir receita',
-            ),
-        ],
-      ),
-      body:
-          // Estado 1: Carregando dados
-          _isLoading
-              ? Center(
-                // Indicador de carregamento circular
-                child: CircularProgressIndicator(
-                  valueColor: AlwaysStoppedAnimation<Color>(
-                    Colors.red.shade600,
+        body:
+            // Estado 1: Carregando dados
+            _isLoading
+                ? Center(
+                  // Indicador de carregamento circular
+                  child: CircularProgressIndicator(
+                    valueColor: AlwaysStoppedAnimation<Color>(
+                      Colors.red.shade600,
+                    ),
                   ),
-                ),
-              )
-              // Estado 2: Exibindo detalhes da receita
-              : SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Container(
-                      width: double.infinity,
-                      height: 250,
-                      color: Colors.grey[200],
-                      child: Builder(
-                        builder: (context) {
-                          try {
-                            return Image(
-                              image: _getImageProvider(widget.imageUrl),
-                              fit: BoxFit.cover,
-                              // Widget de erro caso imagem não carregue
-                              errorBuilder: (context, error, stackTrace) {
-                                return Center(
-                                  child: Column(
-                                    mainAxisAlignment: MainAxisAlignment.center,
-                                    children: [
-                                      Icon(
-                                        Icons.restaurant,
-                                        size: 80,
-                                        color: Colors.grey[600],
-                                      ),
-                                      SizedBox(height: 8),
-                                      Text(
-                                        "Imagem não disponível",
-                                        style: TextStyle(
+                )
+                // Estado 2: Exibindo detalhes da receita
+                : SingleChildScrollView(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Container(
+                        width: double.infinity,
+                        height: 250,
+                        color: Colors.grey[200],
+                        child: Builder(
+                          builder: (context) {
+                            try {
+                              return Image(
+                                image: _getImageProvider(_imageUrl),
+                                fit: BoxFit.cover,
+                                // Widget de erro caso imagem não carregue
+                                errorBuilder: (context, error, stackTrace) {
+                                  return Center(
+                                    child: Column(
+                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      children: [
+                                        Icon(
+                                          Icons.restaurant,
+                                          size: 80,
                                           color: Colors.grey[600],
-                                          fontWeight: FontWeight.w500,
+                                        ),
+                                        SizedBox(height: 8),
+                                        Text(
+                                          "Imagem não disponível",
+                                          style: TextStyle(
+                                            color: Colors.grey[600],
+                                            fontWeight: FontWeight.w500,
+                                          ),
+                                        ),
+                                      ],
+                                    ),
+                                  );
+                                },
+                              );
+                            } catch (e) {
+                              return Center(
+                                child: Icon(
+                                  Icons.restaurant,
+                                  size: 80,
+                                  color: Colors.grey[600],
+                                ),
+                              );
+                            }
+                          },
+                        ),
+                      ),
+                      Padding(
+                        padding: const EdgeInsets.all(16.0),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              'Ingredientes',
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            SizedBox(height: 12),
+                            ..._loadedIngredients.asMap().entries.map(
+                              (entry) => Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                child: Row(
+                                  children: [
+                                    Checkbox(
+                                      value: _ingredientChecked[entry.key],
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _ingredientChecked[entry.key] =
+                                              value ?? false;
+                                        });
+                                      },
+                                      activeColor: Colors.red.shade600,
+                                    ),
+                                    Expanded(
+                                      child: Text(
+                                        entry.value,
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          // Risca texto se marcado
+                                          decoration:
+                                              _ingredientChecked[entry.key]
+                                                  ? TextDecoration.lineThrough
+                                                  : TextDecoration.none,
                                         ),
                                       ),
-                                    ],
-                                  ),
-                                );
-                              },
-                            );
-                          } catch (e) {
-                            return Center(
-                              child: Icon(
-                                Icons.restaurant,
-                                size: 80,
-                                color: Colors.grey[600],
+                                    ),
+                                  ],
+                                ),
                               ),
-                            );
-                          }
-                        },
-                      ),
-                    ),
-                    Padding(
-                      padding: const EdgeInsets.all(16.0),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          Text(
-                            'Ingredientes',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
                             ),
-                          ),
-                          SizedBox(height: 12),
-                          ..._loadedIngredients.asMap().entries.map(
-                            (entry) => Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Row(
-                                children: [
-                                  Checkbox(
-                                    value: _ingredientChecked[entry.key],
-                                    onChanged: (value) {
-                                      setState(() {
-                                        _ingredientChecked[entry.key] =
-                                            value ?? false;
-                                      });
-                                    },
-                                    activeColor: Colors.red.shade600,
-                                  ),
-                                  Expanded(
-                                    child: Text(
-                                      entry.value,
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        // Risca texto se marcado
-                                        decoration:
-                                            _ingredientChecked[entry.key]
-                                                ? TextDecoration.lineThrough
-                                                : TextDecoration.none,
+                            SizedBox(height: 24),
+                            Text(
+                              'Modo de Preparo',
+                              style: TextStyle(
+                                fontSize: 24,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
+                            SizedBox(height: 12),
+                            ..._loadedInstructions.asMap().entries.map(
+                              (entry) => Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                child: Row(
+                                  crossAxisAlignment: CrossAxisAlignment.center,
+                                  children: [
+                                    // Checkbox para marcar passo
+                                    Checkbox(
+                                      value: _instructionChecked[entry.key],
+                                      onChanged: (value) {
+                                        setState(() {
+                                          _instructionChecked[entry.key] =
+                                              value ?? false;
+                                        });
+                                      },
+                                      activeColor: Colors.red.shade600,
+                                    ),
+                                    // Texto da instrução (expansível)
+                                    Expanded(
+                                      child: Text(
+                                        entry.value,
+                                        style: TextStyle(
+                                          fontSize: 16,
+                                          // Risca texto se marcado
+                                          decoration:
+                                              _instructionChecked[entry.key]
+                                                  ? TextDecoration.lineThrough
+                                                  : TextDecoration.none,
+                                        ),
                                       ),
                                     ),
-                                  ),
-                                ],
+                                  ],
+                                ),
                               ),
                             ),
-                          ),
-                          SizedBox(height: 24),
-                          Text(
-                            'Modo de Preparo',
-                            style: TextStyle(
-                              fontSize: 24,
-                              fontWeight: FontWeight.bold,
-                            ),
-                          ),
-                          SizedBox(height: 12),
-                          ..._loadedInstructions.asMap().entries.map(
-                            (entry) => Padding(
-                              padding: const EdgeInsets.symmetric(vertical: 4),
-                              child: Row(
-                                crossAxisAlignment: CrossAxisAlignment.center,
-                                children: [
-                                  // Checkbox para marcar passo
-                                  Checkbox(
-                                    value: _instructionChecked[entry.key],
-                                    onChanged: (value) {
-                                      setState(() {
-                                        _instructionChecked[entry.key] =
-                                            value ?? false;
-                                      });
-                                    },
-                                    activeColor: Colors.red.shade600,
-                                  ),
-                                  // Texto da instrução (expansível)
-                                  Expanded(
-                                    child: Text(
-                                      entry.value,
-                                      style: TextStyle(
-                                        fontSize: 16,
-                                        // Risca texto se marcado
-                                        decoration:
-                                            _instructionChecked[entry.key]
-                                                ? TextDecoration.lineThrough
-                                                : TextDecoration.none,
-                                      ),
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            ),
-                          ),
-                        ],
+                          ],
+                        ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
+      ),
     );
   }
 }

@@ -14,7 +14,9 @@ import 'package:livro_de_receita/Infra/data/dao/passo_preparo_dao.dart';
 import 'package:livro_de_receita/Infra/data/dao/categoria_dao.dart';
 
 class Cadastro extends StatefulWidget {
-  const Cadastro({super.key});
+  final int? recipeId;
+
+  const Cadastro({super.key, this.recipeId});
   
   @override
   State<Cadastro> createState() => _CadastroState();
@@ -27,6 +29,7 @@ class _CadastroState extends State<Cadastro> {
   final _nomeController = TextEditingController();
   int? _categoriaId;
   String? _imagemAsset;
+  DateTime? _dataCadastroOriginal;
   final List<Ingrediente> _ingredientes = [];
   final List<PassoPreparo> _passos = [];
   List<Categoria> _categorias = [];
@@ -46,6 +49,8 @@ class _CadastroState extends State<Cadastro> {
     {'path': 'assets/images/drinks.png', 'nome': 'Drinks'},
     {'path': 'assets/images/sucos.png', 'nome': 'Sucos'},
   ];
+
+  bool get _isEditMode => widget.recipeId != null;
   
   @override
   void initState() {
@@ -54,7 +59,11 @@ class _CadastroState extends State<Cadastro> {
     WidgetsBinding.instance.addPostFrameCallback((_) async {
       await _carregarCategorias();
       await _carregarUnidadesSalvas();
-      await _recuperarRascunho(); // Traz de volta os passos/ingredientes digitados
+      if (_isEditMode) {
+        await _carregarReceitaParaEdicao();
+      } else {
+        await _recuperarRascunho(); // Traz de volta os passos/ingredientes digitados
+      }
       // Em dispositivos com pouca RAM (ex: Moto G), o OS mata o app enquanto a câmera tira foto.
       // Quando o app volta, nós recuperamos a foto tirada e a amarramos de volta.
       _recuperarDeLostData();
@@ -63,6 +72,7 @@ class _CadastroState extends State<Cadastro> {
 
   // MÉTODOS DE BLINDAGEM DE DADOS (RASCUNHO)
   Future<void> _salvarRascunho() async {
+    if (_isEditMode) return;
     try {
       final dir = await getApplicationDocumentsDirectory();
       final file = File('${dir.path}/rascunho_receita.json');
@@ -179,6 +189,53 @@ class _CadastroState extends State<Cadastro> {
     } catch (e) {}
   }
 
+  Future<void> _carregarReceitaParaEdicao() async {
+    if (widget.recipeId == null) return;
+    try {
+      final receita = await ReceitaDao.getById(widget.recipeId!);
+      if (receita == null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: const Text('Receita não encontrada para edição'),
+              backgroundColor: Colors.red.shade600,
+            ),
+          );
+        }
+        return;
+      }
+
+      final ingredientes = await IngredienteDao.getAllByReceita(
+        widget.recipeId!,
+      );
+      final passos = await PassoPreparoDao.getAllByReceita(widget.recipeId!);
+
+      if (mounted) {
+        setState(() {
+          _nomeController.text = receita.titulo;
+          _categoriaId = receita.categoriaId;
+          _imagemAsset = receita.imagem;
+          _dataCadastroOriginal = receita.dataCadastro;
+          _ingredientes
+            ..clear()
+            ..addAll(ingredientes);
+          _passos
+            ..clear()
+            ..addAll(passos);
+        });
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Erro ao carregar receita: $e'),
+            backgroundColor: Colors.red.shade600,
+          ),
+        );
+      }
+    }
+  }
+
   Future<void> _salvarUnidade(String unidade) async {
     final nomeLimpo = unidade.trim();
     if (nomeLimpo.isEmpty) return;
@@ -279,6 +336,157 @@ class _CadastroState extends State<Cadastro> {
     });
   }
 
+  Future<void> _editarIngrediente(int index) async {
+    final ingrediente = _ingredientes[index];
+    final nomeController = TextEditingController(text: ingrediente.nome);
+    final quantidadeController = TextEditingController(
+      text: ingrediente.quantidade.toString(),
+    );
+    final unidadeController = TextEditingController(
+      text: ingrediente.unidadeMedida,
+    );
+
+    await showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            backgroundColor: Colors.white,
+            title: const Text(
+              'Editar Ingrediente',
+              style: TextStyle(color: Colors.black),
+            ),
+            content: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                TextField(
+                  controller: nomeController,
+                  decoration: InputDecoration(
+                    labelText: 'Nome do ingrediente',
+                    labelStyle: TextStyle(color: Colors.grey.shade700),
+                    border: OutlineInputBorder(
+                      borderSide: BorderSide(color: Colors.red.shade300),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: Colors.red.shade600),
+                    ),
+                  ),
+                  style: const TextStyle(color: Colors.black),
+                ),
+                const SizedBox(height: 8),
+                TextField(
+                  controller: quantidadeController,
+                  decoration: InputDecoration(
+                    labelText: 'Quantidade',
+                    labelStyle: TextStyle(color: Colors.grey.shade700),
+                    border: OutlineInputBorder(
+                      borderSide: BorderSide(color: Colors.red.shade300),
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderSide: BorderSide(color: Colors.red.shade600),
+                    ),
+                  ),
+                  keyboardType: TextInputType.number,
+                  style: const TextStyle(color: Colors.black),
+                ),
+                const SizedBox(height: 8),
+                StatefulBuilder(
+                  builder: (context, setDialogState) {
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        TextField(
+                          controller: unidadeController,
+                          decoration: InputDecoration(
+                            labelText: 'Unidade (ex: kg, ml, xícaras)',
+                            labelStyle: TextStyle(color: Colors.grey.shade700),
+                            border: OutlineInputBorder(
+                              borderSide: BorderSide(
+                                color: Colors.red.shade300,
+                              ),
+                            ),
+                            focusedBorder: OutlineInputBorder(
+                              borderSide: BorderSide(
+                                color: Colors.red.shade600,
+                              ),
+                            ),
+                          ),
+                          style: const TextStyle(color: Colors.black),
+                        ),
+                        if (_unidadesSalvas.isNotEmpty) ...[
+                          const SizedBox(height: 8),
+                          const Text(
+                            'Unidades recentes:',
+                            style: TextStyle(fontSize: 12, color: Colors.grey),
+                          ),
+                          const SizedBox(height: 4),
+                          Wrap(
+                            spacing: 8,
+                            runSpacing: -8,
+                            children:
+                                _unidadesSalvas
+                                    .map(
+                                      (u) => InputChip(
+                                        label: Text(
+                                          u,
+                                          style: const TextStyle(fontSize: 12),
+                                        ),
+                                        onPressed: () {
+                                          unidadeController.text = u;
+                                        },
+                                        onDeleted: () async {
+                                          await _excluirUnidadeSalva(u);
+                                          setDialogState(() {});
+                                        },
+                                        deleteIcon: const Icon(
+                                          Icons.close,
+                                          size: 14,
+                                        ),
+                                      ),
+                                    )
+                                    .toList(),
+                          ),
+                        ]
+                      ],
+                    );
+                  },
+                ),
+              ],
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(
+                  'Cancelar',
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  if (nomeController.text.isNotEmpty) {
+                    _salvarUnidade(unidadeController.text);
+                    setState(() {
+                      _ingredientes[index] = Ingrediente(
+                        id: ingrediente.id,
+                        nome: nomeController.text,
+                        quantidade:
+                            double.tryParse(quantidadeController.text) ?? 0,
+                        unidadeMedida: unidadeController.text,
+                        receitaId: ingrediente.receitaId,
+                      );
+                    });
+                    Navigator.pop(context);
+                  }
+                },
+                child: Text(
+                  'Salvar',
+                  style: TextStyle(color: Colors.red.shade600),
+                ),
+              ),
+            ],
+          ),
+    );
+  }
+
   void _removerIngrediente(int index) {
     setState(() {
       _ingredientes.removeAt(index);
@@ -321,6 +529,67 @@ class _CadastroState extends State<Cadastro> {
     });
   }
 
+  Future<void> _editarPasso(int index) async {
+    final passo = _passos[index];
+    final passoController = TextEditingController(text: passo.descricao);
+
+    await showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            backgroundColor: Colors.white,
+            title: const Text(
+              'Editar Passo',
+              style: TextStyle(color: Colors.black),
+            ),
+            content: TextField(
+              controller: passoController,
+              decoration: InputDecoration(
+                labelText: 'Descrição do passo',
+                labelStyle: TextStyle(color: Colors.grey.shade700),
+                border: OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.red.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.red.shade600),
+                ),
+              ),
+              maxLines: 3,
+              style: const TextStyle(color: Colors.black),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(
+                  'Cancelar',
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  if (passoController.text.isNotEmpty) {
+                    setState(() {
+                      _passos[index] = PassoPreparo(
+                        id: passo.id,
+                        ordem: passo.ordem,
+                        descricao: passoController.text,
+                        receitaId: passo.receitaId,
+                        feito: passo.feito,
+                      );
+                    });
+                    Navigator.pop(context);
+                  }
+                },
+                child: Text(
+                  'Salvar',
+                  style: TextStyle(color: Colors.red.shade600),
+                ),
+              ),
+            ],
+          ),
+    );
+  }
+
   Future<void> _salvarReceita() async {
     if (!_formKey.currentState!.validate()) return;
     if (_ingredientes.isEmpty) {
@@ -345,16 +614,29 @@ class _CadastroState extends State<Cadastro> {
     final nome = _nomeController.text.trim();
     try {
       final receita = Receita(
+        id: _isEditMode ? widget.recipeId : null,
         titulo: nome,
         descricao: 'Receita de ${nome.toLowerCase()}',
         tempoPreparo: 0,
         porcoes: 0,
         dificuldade: 0,
-        dataCadastro: DateTime.now(),
+        dataCadastro: _isEditMode
+            ? (_dataCadastroOriginal ?? DateTime.now())
+            : DateTime.now(),
         categoriaId: _categoriaId!,
         imagem: _imagemAsset,
       );
-      final receitaId = await ReceitaDao.insert(receita);
+
+      int receitaId;
+      if (_isEditMode) {
+        receitaId = widget.recipeId!;
+        await ReceitaDao.update(receita);
+        await IngredienteDao.deleteByReceita(receitaId);
+        await PassoPreparoDao.deleteByReceita(receitaId);
+      } else {
+        receitaId = await ReceitaDao.insert(receita);
+      }
+
       for (var ingrediente in _ingredientes) {
         final ingredienteComId = ingrediente.copyWith(receitaId: receitaId);
         await IngredienteDao.insert(ingredienteComId);
@@ -363,11 +645,20 @@ class _CadastroState extends State<Cadastro> {
         final passoComId = passo.copyWith(receitaId: receitaId);
         await PassoPreparoDao.insert(passoComId);
       }
-      await _apagarRascunho(); // Limpa rascunho após salvar receita com sucesso
+
+      if (!_isEditMode) {
+        await _apagarRascunho(); // Limpa rascunho após salvar receita com sucesso
+      } else {
+        await _apagarRascunho();
+      }
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: const Text('Receita salva com sucesso!'),
+            content: Text(
+              _isEditMode
+                  ? 'Receita atualizada com sucesso!'
+                  : 'Receita salva com sucesso!',
+            ),
             backgroundColor: Colors.green.shade600,
           ),
         );
@@ -389,7 +680,7 @@ class _CadastroState extends State<Cadastro> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppbarCustomizado(
-        titulo: "Cadastro",
+        titulo: _isEditMode ? "Editar Receita" : "Cadastro",
         mostrarIconeAdicionar: false,
       ),
       backgroundColor: Colors.grey.shade50,
@@ -637,6 +928,12 @@ class _CadastroState extends State<Cadastro> {
                                 ),
                               ),
                               IconButton(
+                                onPressed: () => _editarIngrediente(index),
+                                icon: const Icon(Icons.edit),
+                                color: Colors.orange.shade700,
+                                iconSize: 20,
+                              ),
+                              IconButton(
                                 onPressed: () => _removerIngrediente(index),
                                 icon: const Icon(Icons.delete),
                                 color: Colors.red.shade600,
@@ -857,6 +1154,12 @@ class _CadastroState extends State<Cadastro> {
                                 ),
                               ),
                               IconButton(
+                                onPressed: () => _editarPasso(index),
+                                icon: const Icon(Icons.edit),
+                                color: Colors.orange.shade700,
+                                iconSize: 20,
+                              ),
+                              IconButton(
                                 onPressed: () => _removerPasso(index),
                                 icon: const Icon(Icons.delete),
                                 color: Colors.red.shade600,
@@ -949,9 +1252,12 @@ class _CadastroState extends State<Cadastro> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                child: const Text(
-                  'Salvar Receita',
-                  style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold),
+                child: Text(
+                  _isEditMode ? 'Salvar Alterações' : 'Salvar Receita',
+                  style: const TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                  ),
                 ),
               ),
             ],
