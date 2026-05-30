@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
 import 'dart:convert';
+import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:image_picker/image_picker.dart';
 import 'appbar.dart';
@@ -529,6 +530,170 @@ class _CadastroState extends State<Cadastro> {
     });
   }
 
+  Future<void> _abrirImportacaoReceita() async {
+    final textoController = TextEditingController();
+    await showDialog(
+      context: context,
+      builder:
+          (context) => AlertDialog(
+            backgroundColor: Colors.white,
+            title: const Text(
+              'Importar receita',
+              style: TextStyle(color: Colors.black),
+            ),
+            content: TextField(
+              controller: textoController,
+              decoration: InputDecoration(
+                labelText: 'Cole a receita aqui',
+                labelStyle: TextStyle(color: Colors.grey.shade700),
+                border: OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.red.shade300),
+                ),
+                focusedBorder: OutlineInputBorder(
+                  borderSide: BorderSide(color: Colors.red.shade600),
+                ),
+              ),
+              maxLines: 10,
+              style: const TextStyle(color: Colors.black),
+            ),
+            actions: [
+              TextButton(
+                onPressed: () async {
+                  final data = await Clipboard.getData('text/plain');
+                  textoController.text = data?.text ?? '';
+                },
+                child: Text(
+                  'Colar',
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context),
+                child: Text(
+                  'Cancelar',
+                  style: TextStyle(color: Colors.grey.shade600),
+                ),
+              ),
+              TextButton(
+                onPressed: () {
+                  _importarReceitaTexto(textoController.text);
+                  Navigator.pop(context);
+                },
+                child: Text(
+                  'Importar',
+                  style: TextStyle(color: Colors.red.shade600),
+                ),
+              ),
+            ],
+          ),
+    );
+  }
+
+  void _importarReceitaTexto(String texto) {
+    final linhas = texto
+        .split('\n')
+        .map((l) => l.trim())
+        .where((l) => l.isNotEmpty)
+        .toList();
+    if (linhas.isEmpty) return;
+
+    String? titulo;
+    String? categoriaNome;
+    final ingredientes = <Ingrediente>[];
+    final passos = <PassoPreparo>[];
+
+    String secao = '';
+    for (final linha in linhas) {
+      final lower = linha.toLowerCase();
+      if (lower.startsWith('receita:')) {
+        titulo = linha.substring('receita:'.length).trim();
+        continue;
+      }
+      if (lower.startsWith('categoria:')) {
+        categoriaNome = linha.substring('categoria:'.length).trim();
+        continue;
+      }
+      if (lower.startsWith('ingredientes:')) {
+        secao = 'ingredientes';
+        continue;
+      }
+      if (lower.startsWith('modo de preparo:')) {
+        secao = 'passos';
+        continue;
+      }
+
+      if (secao == 'ingredientes') {
+        final textoItem = linha.startsWith('- ')
+            ? linha.substring(2).trim()
+            : linha;
+        final partes = textoItem.split('|').map((p) => p.trim()).toList();
+        if (partes.length >= 3) {
+          ingredientes.add(
+            Ingrediente(
+              nome: partes[0],
+              quantidade: double.tryParse(partes[1]) ?? 0,
+              unidadeMedida: partes[2],
+              receitaId: 0,
+            ),
+          );
+        } else if (textoItem.isNotEmpty) {
+          ingredientes.add(
+            Ingrediente(
+              nome: textoItem,
+              quantidade: 0,
+              unidadeMedida: '',
+              receitaId: 0,
+            ),
+          );
+        }
+        continue;
+      }
+
+      if (secao == 'passos') {
+        final textoItem = linha.replaceFirst(RegExp(r'^\d+\.?\s*'), '');
+        if (textoItem.isNotEmpty) {
+          passos.add(
+            PassoPreparo(
+              ordem: passos.length + 1,
+              descricao: textoItem,
+              receitaId: 0,
+              feito: false,
+            ),
+          );
+        }
+      }
+    }
+
+    int? categoriaId;
+    if (categoriaNome != null && _categorias.isNotEmpty) {
+      final nomeLower = categoriaNome.toLowerCase();
+      final categoria = _categorias.firstWhere(
+        (c) => c.nome.toLowerCase() == nomeLower,
+        orElse: () => _categorias.first,
+      );
+      categoriaId = categoria.id;
+    }
+
+    setState(() {
+      if (titulo != null && titulo.isNotEmpty) {
+        _nomeController.text = titulo;
+      }
+      if (categoriaId != null) {
+        _categoriaId = categoriaId;
+      }
+      if (ingredientes.isNotEmpty) {
+        _ingredientes
+          ..clear()
+          ..addAll(ingredientes);
+      }
+      if (passos.isNotEmpty) {
+        _passos
+          ..clear()
+          ..addAll(passos);
+      }
+    });
+  }
+
   Future<void> _editarPasso(int index) async {
     final passo = _passos[index];
     final passoController = TextEditingController(text: passo.descricao);
@@ -731,6 +896,16 @@ class _CadastroState extends State<Cadastro> {
                 ),
                 validator:
                     (v) => v?.isEmpty == true ? 'Nome é obrigatório' : null,
+              ),
+              const SizedBox(height: 12),
+              ElevatedButton.icon(
+                onPressed: _abrirImportacaoReceita,
+                icon: const Icon(Icons.content_paste),
+                label: const Text('Importar receita'),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.grey.shade200,
+                  foregroundColor: Colors.black87,
+                ),
               ),
               const SizedBox(height: 20),
               Container(

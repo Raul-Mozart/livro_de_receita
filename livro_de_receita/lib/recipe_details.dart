@@ -1,9 +1,11 @@
 import 'package:flutter/material.dart';
 import 'dart:io';
+import 'package:flutter/services.dart';
 import 'cadastro.dart';
 import 'Infra/data/dao/receita_dao.dart';
 import 'Infra/data/dao/ingrediente_dao.dart';
 import 'Infra/data/dao/passo_preparo_dao.dart';
+import 'Infra/data/dao/categoria_dao.dart';
 
 // Tela que exibe os detalhes completos de uma receita
 class RecipeDetailsPage extends StatefulWidget {
@@ -35,6 +37,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
   List<String> _loadedInstructions = [];
   late String _titulo;
   late String _imageUrl;
+  String? _categoriaNome;
   bool _hasChanges = false;
   bool _allowPop = false;
   bool _isLoading = true;
@@ -56,6 +59,8 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         if (receita != null) {
           _titulo = receita.titulo;
           _imageUrl = receita.imagem ?? 'assets/images/receita_default.png';
+          final categoria = await CategoriaDao.getById(receita.categoriaId);
+          _categoriaNome = categoria?.nome;
         }
         final ingredientes = await IngredienteDao.getAllByReceita(
           widget.recipeId!,
@@ -75,6 +80,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         _loadedInstructions = widget.instructions;
         _titulo = widget.title;
         _imageUrl = widget.imageUrl;
+        _categoriaNome = null;
       }
       
       // Inicializa todas as checkboxes como desmarcadas
@@ -97,6 +103,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
       _loadedInstructions = widget.instructions;
       _titulo = widget.title;
       _imageUrl = widget.imageUrl;
+      _categoriaNome = null;
       
       // Inicializa checkboxes mesmo com erro
       _ingredientChecked = List.generate(
@@ -242,6 +249,37 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
     }
   }
 
+  String _buildRecipeShareText() {
+    final buffer = StringBuffer();
+    buffer.writeln('Receita: $_titulo');
+    if (_categoriaNome != null && _categoriaNome!.isNotEmpty) {
+      buffer.writeln('Categoria: $_categoriaNome');
+    }
+    buffer.writeln('');
+    buffer.writeln('Ingredientes:');
+    for (final ingrediente in _loadedIngredients) {
+      buffer.writeln('- $ingrediente');
+    }
+    buffer.writeln('');
+    buffer.writeln('Modo de Preparo:');
+    for (var i = 0; i < _loadedInstructions.length; i++) {
+      buffer.writeln('${i + 1}. ${_loadedInstructions[i]}');
+    }
+    return buffer.toString().trimRight();
+  }
+
+  Future<void> _copiarReceita() async {
+    final texto = _buildRecipeShareText();
+    await Clipboard.setData(ClipboardData(text: texto));
+    if (!mounted) return;
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Receita copiada para a área de transferência'),
+        backgroundColor: Colors.green.shade600,
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return WillPopScope(
@@ -262,6 +300,11 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
           centerTitle: true,
           backgroundColor: Colors.red.shade600,
           actions: [
+            IconButton(
+              icon: Icon(Icons.copy),
+              onPressed: _copiarReceita,
+              tooltip: 'Copiar receita',
+            ),
             if (widget.recipeId != null)
               IconButton(
                 icon: Icon(Icons.edit),
