@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
@@ -47,6 +48,9 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
   bool _assistantActive = false;
   bool _isListening = false;
   bool _isSpeaking = false;
+  Timer? _listeningWatchdog;
+  bool _assistantMenuOpen = false;
+  bool _assistantWasActive = false;
   String _assistantMode = 'ingredientes';
   int _currentIngredientIndex = 0;
   int _currentStepIndex = 0;
@@ -85,6 +89,9 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         setState(() {
           _isListening = false;
         });
+        if (_assistantActive && !_isSpeaking) {
+          _startListening();
+        }
       },
     );
     await _tts.awaitSpeakCompletion(true);
@@ -219,6 +226,44 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
       },
     );
   }
+
+  Future<void> _mostrarInfoAssistente() async {
+    return showDialog<void>(
+      context: context,
+      builder: (BuildContext context) {
+        return AlertDialog(
+          title: Text('Como usar o assistente'),
+          content: SingleChildScrollView(
+            child: ListBody(
+              children: <Widget>[
+                Text(
+                  'O assistente fica ouvindo enquanto estiver ativo. '
+                  'Voce pode dizer comandos como:',
+                ),
+                SizedBox(height: 8),
+                Text('- "Peguei", "Feito", "Conclui", "Pronto" ou "Marcar"'),
+                Text('- "Desmarcar <nome do ingrediente>"'),
+                Text('- "Desmarcar passo <numero>"'),
+                Text('- "Passo <numero>" (ex: "passo 2" ou "passo dois")'),
+                Text('- "Proximo" ou "Avancar"'),
+                Text('- "Voltar passo"'),
+                Text('- "Repetir"'),
+                Text('- "Marcar tudo", "Peguei tudo", "Feito tudo", "Conclui tudo" ou "Pronto tudo"'),
+                Text('- "Desmarcar tudo", "Nao peguei tudo", "Nao fiz tudo" ou "Ainda nao tudo"'),
+                Text('- "Ir para modo de preparo"'),
+              ],
+            ),
+          ),
+          actions: <Widget>[
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text('Fechar'),
+            ),
+          ],
+        );
+      },
+    );
+  }
   Future<void> _excluirReceita() async {
     try {
       if (widget.recipeId == null) {
@@ -315,6 +360,17 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
     if (match == null) return null;
     var name = match.group(2) ?? '';
     name = name.replaceAll(RegExp(r'\bpor favor\b'), '').trim();
+    return name.isEmpty ? null : name;
+  }
+
+  String? _extractUnmarkIngredientName(String normalizedText) {
+    final match = RegExp(r'^desmarc\w*\s+(.+)$').firstMatch(normalizedText);
+    if (match == null) return null;
+    var name = match.group(1) ?? '';
+    name = name.replaceFirst(RegExp(r'^(o|a|os|as)\s+'), '');
+    name = name.replaceFirst(RegExp(r'^(ingrediente|item)\s+'), '');
+    name = name.replaceAll(RegExp(r'\bpor favor\b'), '').trim();
+    if (name.startsWith('passo')) return null;
     return name.isEmpty ? null : name;
   }
 
@@ -506,11 +562,33 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
       );
       return;
     }
+    if (_assistantMenuOpen) {
+      setState(() {
+        _assistantMenuOpen = false;
+      });
+      if (_assistantWasActive) {
+        _assistantWasActive = false;
+        await _resumeAssistant();
+      } else {
+        await _startAssistant();
+      }
+      return;
+    }
+    setState(() {
+      _assistantMenuOpen = true;
+      _assistantWasActive = _assistantActive;
+    });
     if (_assistantActive) {
       await _stopAssistant();
-    } else {
-      await _startAssistant();
     }
+  }
+
+  Future<void> _resumeAssistant() async {
+    setState(() {
+      _assistantActive = true;
+    });
+    _startListeningWatchdog();
+    await _startListening();
   }
 
   Future<void> _startAssistant() async {
@@ -519,6 +597,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
       _assistantMode = 'ingredientes';
       _currentStepIndex = 0;
     });
+    _startListeningWatchdog();
     final ingredientesTexto = _loadedIngredients.isEmpty
         ? 'Nenhum ingrediente informado.'
         : _loadedIngredients.join(', ');
@@ -531,11 +610,31 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
   Future<void> _stopAssistant() async {
     await _speech.stop();
     await _tts.stop();
+    _stopListeningWatchdog();
     if (!mounted) return;
     setState(() {
       _assistantActive = false;
       _isListening = false;
     });
+  }
+
+  void _startListeningWatchdog() {
+    _listeningWatchdog?.cancel();
+    _listeningWatchdog = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) {
+        if (!mounted) return;
+        if (!_assistantActive || _isSpeaking) return;
+        if (!_isListening) {
+          _startListening();
+        }
+      },
+    );
+  }
+
+  void _stopListeningWatchdog() {
+    _listeningWatchdog?.cancel();
+    _listeningWatchdog = null;
   }
 
   Future<void> _startListening() async {
@@ -547,8 +646,8 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
     });
     await _speech.listen(
       onResult: _onSpeechResult,
-      listenFor: const Duration(seconds: 20),
-      pauseFor: const Duration(seconds: 3),
+      listenFor: const Duration(seconds: 60),
+      pauseFor: const Duration(seconds: 6),
       partialResults: false,
     );
   }
@@ -556,7 +655,12 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
   void _onSpeechResult(SpeechRecognitionResult result) {
     if (!result.finalResult) return;
     final texto = result.recognizedWords.trim();
-    if (texto.isEmpty) return;
+    if (texto.isEmpty) {
+      if (_assistantActive && !_isSpeaking) {
+        _startListening();
+      }
+      return;
+    }
     _processVoiceCommand(texto);
   }
 
@@ -610,32 +714,16 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
     String? requestedName,
   }) {
     final requested = requestedName?.trim();
-    if (requested != null && requested.isNotEmpty) {
-      for (var i = 0; i < _loadedIngredients.length; i++) {
-        final nome = _extractIngredientName(_loadedIngredients[i]);
-        final nomeNorm = _normalize(nome);
-        if (nomeNorm.isNotEmpty &&
-            (nomeNorm.contains(requested) || requested.contains(nomeNorm))) {
-          return i;
-        }
-      }
+    if (requested == null || requested.isEmpty) return null;
+    final requestedNorm = _normalize(requested);
+    final byIndex = _parseIndexToken(requestedNorm);
+    if (byIndex != null &&
+        byIndex >= 0 &&
+        byIndex < _loadedIngredients.length) {
+      return byIndex;
     }
 
-    final byIngredient = _findIndexByKeyword(
-      normalizedText,
-      'ingrediente',
-      _loadedIngredients.length,
-    );
-    if (byIngredient != null) return byIngredient;
-    final byItem = _findIndexByKeyword(
-      normalizedText,
-      'item',
-      _loadedIngredients.length,
-    );
-    if (byItem != null) return byItem;
-
-    final targetText =
-        requested != null && requested.isNotEmpty ? requested : normalizedText;
+    final targetText = requestedNorm;
     var bestScore = 0;
     int? bestIndex;
     for (var i = 0; i < _loadedIngredients.length; i++) {
@@ -670,7 +758,12 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
 
   Future<void> _processVoiceCommand(String transcript) async {
     final normalized = _normalize(transcript);
-    final requestedName = _extractRequestedName(normalized);
+    final wantsGoToPreparation =
+      RegExp(r'\bir\s+para\s+o?\s*modo de preparo\b')
+        .hasMatch(normalized) ||
+      RegExp(r'\bir\s+pro\s+modo de preparo\b').hasMatch(normalized) ||
+      RegExp(r'\bir\s+para\s+o?\s*preparo\b').hasMatch(normalized) ||
+      RegExp(r'\bir\s+pro\s+preparo\b').hasMatch(normalized);
     final wantsRepeat = normalized.contains('repet');
     final mentionsIngredientes = normalized.contains('ingrediente');
     final mentionsPassos =
@@ -678,9 +771,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
     final wantsNext =
         normalized.contains('proximo') || normalized.contains('avancar');
     final wantsPrev =
-        normalized.contains('voltar') || normalized.contains('anterior');
-    final wantsAll =
-        normalized.contains('tudo') || normalized.contains('todos');
+      RegExp(r'\bvoltar\s+(o\s+)?passo\b').hasMatch(normalized);
     final wantsUnmark = normalized.contains('desmarc') ||
         normalized.contains('ainda nao') ||
         normalized.contains('nao peguei') ||
@@ -691,6 +782,29 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         normalized.contains('conclui') ||
         normalized.contains('pronto') ||
         normalized.contains('marcar'));
+    final wantsMarkAll = RegExp(
+      r'\b(peguei|feito|conclui|pronto|marcar)\b.*\btudo\b',
+    ).hasMatch(normalized);
+    final wantsUnmarkAll = RegExp(
+      r'\b(desmarc\w*|nao peguei|nao fiz|ainda nao)\b.*\btudo\b',
+    ).hasMatch(normalized);
+    final unmarkIngredientName =
+        wantsUnmark ? _extractUnmarkIngredientName(normalized) : null;
+    final requestedName = unmarkIngredientName;
+
+    if (wantsGoToPreparation) {
+      _assistantMode = 'passos';
+      if (_loadedInstructions.isEmpty) {
+        await _speakAndResume('Nao ha passos de preparo cadastrados.');
+        return;
+      }
+      _currentStepIndex = 0;
+      await _speakAndResume(
+        'Ok, vamos para o modo de preparo. '
+        'Passo 1: ${_loadedInstructions.first}.',
+      );
+      return;
+    }
 
     if (wantsRepeat) {
       if (_assistantMode == 'ingredientes') {
@@ -721,7 +835,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
     }
 
     if (mentionsIngredientes || requestedName != null || _assistantMode == 'ingredientes') {
-      if (wantsAll && wantsUnmark) {
+      if (wantsUnmarkAll) {
         setState(() {
           for (var i = 0; i < _ingredientChecked.length; i++) {
             _ingredientChecked[i] = false;
@@ -731,12 +845,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         return;
       }
 
-      if (wantsAll && !wantsMark && !wantsUnmark) {
-        await _falarIngredientes();
-        return;
-      }
-
-      if (wantsAll && (wantsMark || normalized.contains('peguei'))) {
+      if (wantsMarkAll) {
         setState(() {
           for (var i = 0; i < _ingredientChecked.length; i++) {
             _ingredientChecked[i] = true;
@@ -755,18 +864,21 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         setState(() {
           _ingredientChecked[ingredientIndex] = shouldMark;
         });
+        _currentIngredientIndex = ingredientIndex;
         if (shouldMark) {
-          _currentIngredientIndex = ingredientIndex;
           await _avancarIngrediente(ingredientIndex);
           return;
         }
-        _currentIngredientIndex = ingredientIndex;
-        await _speakAndResume('Ingrediente desmarcado.');
-        await _falarIngredienteAtual();
+        _assistantMode = 'ingredientes';
+        await _speakAndResume(
+          'Ingrediente desmarcado. Pegue o ingrediente: '
+          '${_loadedIngredients[ingredientIndex]}. '
+          'Quando pegar, diga "peguei".',
+        );
         return;
       }
 
-      if (wantsMark && !wantsAll) {
+      if (wantsMark && !wantsMarkAll && !wantsUnmarkAll) {
         final nextIndex = _resolveIngredientIndexForMark();
         if (nextIndex != -1) {
           setState(() {
@@ -778,22 +890,26 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         }
       }
 
-      if (wantsUnmark && !wantsAll) {
+      if (wantsUnmark && !wantsMarkAll && !wantsUnmarkAll) {
         final index = _resolveIngredientIndexForMark();
         if (index != -1) {
           setState(() {
             _ingredientChecked[index] = false;
           });
           _currentIngredientIndex = index;
-          await _speakAndResume('Ingrediente desmarcado.');
-          await _falarIngredienteAtual();
+          _assistantMode = 'ingredientes';
+          await _speakAndResume(
+            'Ingrediente desmarcado. Pegue o ingrediente: '
+            '${_loadedIngredients[index]}. '
+            'Quando pegar, diga "peguei".',
+          );
           return;
         }
       }
     }
 
     if (mentionsPassos || _assistantMode == 'passos') {
-      if (wantsAll && wantsUnmark) {
+      if (wantsUnmarkAll) {
         setState(() {
           for (var i = 0; i < _instructionChecked.length; i++) {
             _instructionChecked[i] = false;
@@ -802,11 +918,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         await _speakAndResume('Passos desmarcados.');
         return;
       }
-      if (wantsAll && !wantsMark && !wantsUnmark) {
-        await _falarModoPreparo();
-        return;
-      }
-      if (wantsAll && wantsMark) {
+      if (wantsMarkAll) {
         setState(() {
           for (var i = 0; i < _instructionChecked.length; i++) {
             _instructionChecked[i] = true;
@@ -836,7 +948,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         return;
       }
 
-      if (wantsMark && !wantsAll) {
+      if (wantsMark && !wantsMarkAll && !wantsUnmarkAll) {
         final index = _resolveStepIndexForMark();
         if (index != -1) {
           setState(() {
@@ -848,7 +960,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         }
       }
 
-      if (wantsUnmark && !wantsAll) {
+      if (wantsUnmark && !wantsMarkAll && !wantsUnmarkAll) {
         final index = _resolveStepIndexForMark();
         if (index != -1) {
           setState(() {
@@ -862,22 +974,20 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
       }
     }
 
-    await _speakAndResume(
-      'Nao entendi. Opcoes: Repetir. Marcar ingrediente ou passo. '
-      'Desmarcar ingrediente ou passo.',
-    );
+    await _speakAndResume('Nao entendi, por favor, repita o comando.');
   }
 
   String _buildRecipeShareText() {
     final buffer = StringBuffer();
-    buffer.writeln('Receita: $_titulo');
+    buffer.write('Categoria:');
     if (_categoriaNome != null && _categoriaNome!.isNotEmpty) {
-      buffer.writeln('Categoria: $_categoriaNome');
+      buffer.write(' $_categoriaNome');
     }
-    buffer.writeln('');
+    buffer.writeln();
+    buffer.writeln('Título: $_titulo');
     buffer.writeln('Ingredientes:');
     for (final ingrediente in _loadedIngredients) {
-      buffer.writeln('- $ingrediente');
+      buffer.writeln('* $ingrediente');
     }
     buffer.writeln('');
     buffer.writeln('Modo de Preparo:');
@@ -901,6 +1011,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
 
   @override
   void dispose() {
+    _stopListeningWatchdog();
     _speech.stop();
     _tts.stop();
     super.dispose();
@@ -1118,16 +1229,40 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
                     ],
                   ),
                 ),
-        floatingActionButton: FloatingActionButton(
-          onPressed: _toggleAssistant,
-          backgroundColor: Colors.red.shade600,
-          child: Icon(
-            _assistantActive
-                ? (_isListening ? Icons.mic : Icons.mic_none)
-                : Icons.restaurant_menu,
-          ),
-          tooltip:
-              _assistantActive ? 'Assistente ativo' : 'Ativar assistente',
+        floatingActionButton: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (_assistantMenuOpen || _assistantActive || _isSpeaking)
+              FloatingActionButton.small(
+                heroTag: 'assistant-info',
+                onPressed: _mostrarInfoAssistente,
+                backgroundColor: Colors.white,
+                foregroundColor: Colors.red.shade600,
+                child: Icon(Icons.info_outline),
+                tooltip: 'Como usar o assistente',
+              ),
+            if (_assistantMenuOpen || _assistantActive || _isSpeaking)
+              SizedBox(height: 8),
+            FloatingActionButton(
+              heroTag: 'assistant-main',
+              onPressed: _toggleAssistant,
+              backgroundColor: Colors.red.shade600,
+              child: Icon(
+                _assistantMenuOpen
+                    ? Icons.pause
+                    : (_assistantActive
+                        ? (_isListening ? Icons.mic : Icons.mic_none)
+                        : Icons.restaurant_menu),
+              ),
+              tooltip: _assistantMenuOpen
+                  ? (_assistantWasActive
+                      ? 'Retomar assistente'
+                      : 'Ativar assistente')
+                  : (_assistantActive
+                      ? 'Assistente ativo'
+                      : 'Ativar assistente'),
+            ),
+          ],
         ),
       ),
     );

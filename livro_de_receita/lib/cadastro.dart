@@ -602,15 +602,70 @@ class _CadastroState extends State<Cadastro> {
     final ingredientes = <Ingrediente>[];
     final passos = <PassoPreparo>[];
 
+    Ingrediente? parseIngredienteLinha(String linha) {
+      var textoItem = linha.trim();
+      if (textoItem.startsWith('*')) {
+        textoItem = textoItem.substring(1).trim();
+      } else if (textoItem.startsWith('-')) {
+        textoItem = textoItem.substring(1).trim();
+      } else if (textoItem.startsWith('•')) {
+        textoItem = textoItem.substring(1).trim();
+      }
+      if (textoItem.isEmpty) return null;
+
+      final match = RegExp(r'^([0-9]+(?:[.,][0-9]+)?)\s+(.+)$').firstMatch(
+        textoItem,
+      );
+      if (match != null) {
+        final quantidade =
+            double.tryParse(match.group(1)!.replaceAll(',', '.')) ?? 0;
+        final resto = match.group(2)!.trim();
+        final idx = resto.toLowerCase().lastIndexOf(' de ');
+        var unidade = '';
+        var nome = resto;
+        if (idx != -1) {
+          unidade = resto.substring(0, idx).trim();
+          nome = resto.substring(idx + 4).trim();
+        }
+        return Ingrediente(
+          nome: nome,
+          quantidade: quantidade,
+          unidadeMedida: unidade,
+          receitaId: 0,
+        );
+      }
+
+      final partes = textoItem.split('|').map((p) => p.trim()).toList();
+      if (partes.length >= 3) {
+        return Ingrediente(
+          nome: partes[0],
+          quantidade: double.tryParse(partes[1]) ?? 0,
+          unidadeMedida: partes[2],
+          receitaId: 0,
+        );
+      }
+
+      return Ingrediente(
+        nome: textoItem,
+        quantidade: 0,
+        unidadeMedida: '',
+        receitaId: 0,
+      );
+    }
+
     String secao = '';
     for (final linha in linhas) {
       final lower = linha.toLowerCase();
-      if (lower.startsWith('receita:')) {
-        titulo = linha.substring('receita:'.length).trim();
+      if (lower.startsWith('receita:') ||
+          lower.startsWith('titulo:') ||
+          lower.startsWith('título:')) {
+        final idx = linha.indexOf(':');
+        titulo = idx == -1 ? '' : linha.substring(idx + 1).trim();
         continue;
       }
       if (lower.startsWith('categoria:')) {
-        categoriaNome = linha.substring('categoria:'.length).trim();
+        final idx = linha.indexOf(':');
+        categoriaNome = idx == -1 ? '' : linha.substring(idx + 1).trim();
         continue;
       }
       if (lower.startsWith('ingredientes:')) {
@@ -623,34 +678,15 @@ class _CadastroState extends State<Cadastro> {
       }
 
       if (secao == 'ingredientes') {
-        final textoItem = linha.startsWith('- ')
-            ? linha.substring(2).trim()
-            : linha;
-        final partes = textoItem.split('|').map((p) => p.trim()).toList();
-        if (partes.length >= 3) {
-          ingredientes.add(
-            Ingrediente(
-              nome: partes[0],
-              quantidade: double.tryParse(partes[1]) ?? 0,
-              unidadeMedida: partes[2],
-              receitaId: 0,
-            ),
-          );
-        } else if (textoItem.isNotEmpty) {
-          ingredientes.add(
-            Ingrediente(
-              nome: textoItem,
-              quantidade: 0,
-              unidadeMedida: '',
-              receitaId: 0,
-            ),
-          );
+        final ingrediente = parseIngredienteLinha(linha);
+        if (ingrediente != null) {
+          ingredientes.add(ingrediente);
         }
         continue;
       }
 
       if (secao == 'passos') {
-        final textoItem = linha.replaceFirst(RegExp(r'^\d+\.?\s*'), '');
+        final textoItem = linha.replaceFirst(RegExp(r'^\d+[\.)]?\s*'), '');
         if (textoItem.isNotEmpty) {
           passos.add(
             PassoPreparo(
