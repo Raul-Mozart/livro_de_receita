@@ -198,27 +198,20 @@ flowchart LR
     UC12(["Visualizar Histórico<br/>de Unidades"])
 
     Usuario --> UC1
-    Usuario --> UC2
-    Usuario --> UC3
-    Usuario --> UC4
-    Usuario --> UC5
-    Usuario --> UC6
-    Usuario --> UC7
-    Usuario --> UC8
-    Usuario --> UC9
-    Usuario --> UC10
-    Usuario --> UC11
-    Usuario --> UC12
+    UC1 <--> UC2
+    UC1 <--> UC3
+    UC2 <--> UC3
+    UC1 <--> UC4
+    UC2 <--> UC4
+    UC3 --> UC6
+    UC3 --> UC7
+    UC3 --> UC8
+    UC3 --> UC9
+    UC3 --> UC5
+    UC4 --> UC10
+    UC4 --> UC11
+    UC4 --> UC12
 
-    UC3 -.-> UC8
-    UC3 -.-> UC9
-    UC3 -.-> UC7
-    UC4 -.-> UC10
-    UC4 -.-> UC11
-    UC4 -.-> UC12
-    UC5 -.-> UC10
-    UC5 -.-> UC12
-    UC2 -.-> UC1
 ```
 
 ---
