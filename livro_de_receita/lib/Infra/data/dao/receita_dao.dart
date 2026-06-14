@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import '../db_provider.dart';
 import '../../models/receita.dart';
 import 'ingrediente_dao.dart';
@@ -37,17 +39,36 @@ class ReceitaDao {
 
   static Future delete(int id) async {
     final db = await DBProvider().database;
+    // Recupera a receita antes de apagar para obter o path da imagem
+    String? imagemPath;
     try {
+      final receita = await getById(id);
+      imagemPath = receita?.imagem;
+    } catch (e) {
+      imagemPath = null;
+    }
 
+    try {
       // Primeiro deleta todos os ingredientes da receita
       await IngredienteDao.deleteByReceita(id);
-      
       // Depois deleta todos os passos de preparo da receita
       await PassoPreparoDao.deleteByReceita(id);
-      
     } catch (e) {
       // Ignora erros ao deletar dados relacionados
     }
-    return db.delete('receita', where: 'id = ?', whereArgs: [id]);
+
+    final rows = await db.delete('receita', where: 'id = ?', whereArgs: [id]);
+
+    // Se havia uma imagem localizada fora dos assets, tenta removê-la do disco
+    if (imagemPath != null && imagemPath.isNotEmpty && !imagemPath.startsWith('assets/')) {
+      try {
+        final f = File(imagemPath);
+        if (await f.exists()) await f.delete();
+      } catch (e) {
+        // Falha ao apagar o ficheiro — não interrompe a operação de remoção
+      }
+    }
+
+    return rows;
   }
 }

@@ -4,6 +4,7 @@ import 'dart:convert';
 import 'package:flutter/services.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:image_picker/image_picker.dart';
+import 'package:path/path.dart' as p;
 import 'appbar.dart';
 import 'package:livro_de_receita/Infra/models/receita.dart';
 import 'package:livro_de_receita/Infra/models/ingrediente.dart';
@@ -130,9 +131,20 @@ class _CadastroState extends State<Cadastro> {
       return;
     }
     if (response.file != null && mounted) {
-      setState(() {
-        _imagemAsset = response.file!.path;
-      });
+      try {
+        final saved = await _savePickedFileToAppDir(response.file!.path);
+        if (mounted) {
+          setState(() {
+            _imagemAsset = saved;
+          });
+        }
+      } catch (e) {
+        if (mounted) {
+          setState(() {
+            _imagemAsset = response.file!.path; // fallback
+          });
+        }
+      }
       // Um pequeno aviso de que a foto foi recuperada após o sistema fechar a memória
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -283,9 +295,12 @@ class _CadastroState extends State<Cadastro> {
       );
       
       if (pickedFile != null && mounted) {
-        setState(() {
-          _imagemAsset = pickedFile.path;
-        });
+        try {
+          final saved = await _savePickedFileToAppDir(pickedFile.path);
+          if (mounted) setState(() => _imagemAsset = saved);
+        } catch (e) {
+          if (mounted) setState(() => _imagemAsset = pickedFile.path);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -308,9 +323,12 @@ class _CadastroState extends State<Cadastro> {
         imageQuality: 70, // Tamanho amigável, qualidade média sem estourar nada
       );
       if (pickedFile != null && mounted) {
-        setState(() {
-          _imagemAsset = pickedFile.path;
-        });
+        try {
+          final saved = await _savePickedFileToAppDir(pickedFile.path);
+          if (mounted) setState(() => _imagemAsset = saved);
+        } catch (e) {
+          if (mounted) setState(() => _imagemAsset = pickedFile.path);
+        }
       }
     } catch (e) {
       if (mounted) {
@@ -322,6 +340,21 @@ class _CadastroState extends State<Cadastro> {
         );
       }
     }
+  }
+
+  // Copia o ficheiro selecionado para o diretório de documentos do app e retorna o novo path
+  Future<String> _savePickedFileToAppDir(String sourcePath) async {
+    final src = File(sourcePath);
+    if (!await src.exists()) throw Exception('Arquivo de origem não encontrado');
+
+    final dir = await getApplicationDocumentsDirectory();
+    final imagesDir = Directory('${dir.path}/receitas_images');
+    if (!await imagesDir.exists()) await imagesDir.create(recursive: true);
+
+    final filename = '${DateTime.now().millisecondsSinceEpoch}_${p.basename(sourcePath)}';
+    final destPath = '${imagesDir.path}/$filename';
+    final dest = await src.copy(destPath);
+    return dest.path;
   }
 
   void _adicionarIngrediente(String nome, double quantidade, String unidade) {
