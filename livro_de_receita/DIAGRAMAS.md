@@ -1,10 +1,11 @@
 # 📊 Diagramas UML - Livro de Receitas
 
-## 📐 1. Diagrama de Classes
+## 📐 1a. Diagrama de Classes - 📱 Apresentação & Domínio
 
 ```mermaid
 classDiagram
     direction TB
+
     class MainApp {
         +build(BuildContext context)
     }
@@ -105,6 +106,30 @@ classDiagram
         +copyWith() PassoPreparo
     }
 
+    %% Relacionamentos - Páginas
+    MainApp --> LivroDeReceitas
+    MainApp --> Cadastro
+    LivroDeReceitas --> CategoriaPage
+    CategoriaPage --> RecipeDetailsPage
+    CategoriaPage --> Cadastro
+    RecipeDetailsPage --> Cadastro
+
+    %% Relacionamentos - Modelos
+    Receita --> Categoria
+    Receita --> Ingrediente
+    Receita --> PassoPreparo
+    Ingrediente --> Receita
+    PassoPreparo --> Receita
+```
+
+---
+
+## 📐 1b. Diagrama de Classes - 💾 Persistência & Banco de Dados
+
+```mermaid
+classDiagram
+    direction TB
+
     class DBProvider {
         -Database? _db
         -DBProvider _instance
@@ -138,20 +163,38 @@ classDiagram
         +deleteByReceita(int receitaId) static
     }
 
-    %% Relacionamentos - Páginas
-    MainApp --> LivroDeReceitas
-    MainApp --> Cadastro
-    LivroDeReceitas --> CategoriaPage
-    CategoriaPage --> RecipeDetailsPage
-    CategoriaPage --> Cadastro
-    RecipeDetailsPage --> Cadastro
+    class Receita {
+        -int? id
+        -String titulo
+        -String descricao
+        -int tempoPreparo
+        -int porcoes
+        -int dificuldade
+        -DateTime dataCadastro
+        -int categoriaId
+        -String? imagem
+    }
 
-    %% Relacionamentos - Modelos
-    Receita --> Categoria
-    Receita --> Ingrediente
-    Receita --> PassoPreparo
-    Ingrediente --> Receita
-    PassoPreparo --> Receita
+    class Categoria {
+        -int? id
+        -String nome
+    }
+
+    class Ingrediente {
+        -int? id
+        -String nome
+        -double quantidade
+        -String unidadeMedida
+        -int receitaId
+    }
+
+    class PassoPreparo {
+        -int? id
+        -int ordem
+        -String descricao
+        -int receitaId
+        -bool feito
+    }
 
     %% Relacionamentos - Persistência
     ReceitaDao --> DBProvider
@@ -162,23 +205,68 @@ classDiagram
     CategoriaDao --> Categoria
     IngredienteDao --> Ingrediente
     PassoPreparoDao --> PassoPreparo
+```
 
-    %% Relacionamentos - Consumo de DAOs pelas Páginas
+---
+
+## 📐 1c. Diagrama de Classes - Integração Completa
+
+```mermaid
+classDiagram
+    direction LR
+
+    %% Camada UI
+    class MainApp
+    class LivroDeReceitas
+    class CategoriaPage
+    class RecipeDetailsPage
+    class Cadastro
+
+    %% Camada Modelo
+    class Receita
+    class Categoria
+    class Ingrediente
+    class PassoPreparo
+
+    %% Camada Persistência
+    class ReceitaDao
+    class CategoriaDao
+    class IngredienteDao
+    class PassoPreparoDao
+    class DBProvider
+
+    %% Relacionamentos
+    MainApp --> LivroDeReceitas
+    MainApp --> Cadastro
+    LivroDeReceitas --> CategoriaPage
+    CategoriaPage --> RecipeDetailsPage
+    CategoriaPage --> Cadastro
+    RecipeDetailsPage --> Cadastro
+
     LivroDeReceitas --> ReceitaDao
     CategoriaPage --> ReceitaDao
     RecipeDetailsPage --> ReceitaDao
     RecipeDetailsPage --> IngredienteDao
     RecipeDetailsPage --> PassoPreparoDao
-    RecipeDetailsPage --> CategoriaDao
     Cadastro --> ReceitaDao
     Cadastro --> IngredienteDao
     Cadastro --> PassoPreparoDao
     Cadastro --> CategoriaDao
+
+    ReceitaDao --> DBProvider
+    CategoriaDao --> DBProvider
+    IngredienteDao --> DBProvider
+    PassoPreparoDao --> DBProvider
+
+    ReceitaDao --> Receita
+    CategoriaDao --> Categoria
+    IngredienteDao --> Ingrediente
+    PassoPreparoDao --> PassoPreparo
 ```
 
 ---
 
-## 🎭 2. Diagrama de Casos de Uso
+## 📐 2. Diagrama de Casos de Uso
 
 ```mermaid
 flowchart LR
