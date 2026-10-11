@@ -530,7 +530,7 @@ stateDiagram-v2
     Visualizando --> Usando: Usuário consulta durante preparo
     Usando --> Visualizando: Usuário volta para detalhes
     
-    Salva --> Removendo: Usuário clica 'Deletar'
+    Visualizando --> Removendo: Usuário clica 'Deletar'
     Removendo --> Removida: Receita deletada do BD
     Removida --> [*]
     

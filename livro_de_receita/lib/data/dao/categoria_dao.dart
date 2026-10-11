@@ -1,5 +1,5 @@
-import '../db_provider.dart';
-import '../../models/categoria.dart';
+import 'package:livro_de_receita/data/db_provider.dart';
+import 'package:livro_de_receita/models/categoria.dart';
 
 // Classe responsável pelas operações de banco de dados da tabela categoria
 class CategoriaDao {

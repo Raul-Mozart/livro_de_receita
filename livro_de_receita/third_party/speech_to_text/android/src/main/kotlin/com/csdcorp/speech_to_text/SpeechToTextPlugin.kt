@@ -642,10 +642,13 @@ public class SpeechToTextPlugin :
                         debugLog("put package")
                         putExtra(RecognizerIntent.EXTRA_PARTIAL_RESULTS, partialResults)
                         debugLog("put partial")
-                        if (languageTag != Locale.getDefault().toLanguageTag()) {
-                            putExtra(RecognizerIntent.EXTRA_LANGUAGE, languageTag);
-                            debugLog("put languageTag")
-                        }
+                        // Sempre informa o idioma: sem isso o reconhecedor do Google usa o
+                        // idioma da "digitação por voz" do aparelho (muitas vezes inglês),
+                        // mesmo quando o sistema está em português
+                        val bcp47Tag = languageTag.replace('_', '-')
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE, bcp47Tag)
+                        putExtra(RecognizerIntent.EXTRA_LANGUAGE_PREFERENCE, bcp47Tag)
+                        debugLog("put languageTag")
                         if ( onDevice ) {
                             putExtra(RecognizerIntent.EXTRA_PREFER_OFFLINE, onDevice );
                         }

@@ -1,9 +1,9 @@
 import 'dart:io';
 
-import '../db_provider.dart';
-import '../../models/receita.dart';
-import 'ingrediente_dao.dart';
-import 'passo_preparo_dao.dart';
+import 'package:livro_de_receita/data/db_provider.dart';
+import 'package:livro_de_receita/models/receita.dart';
+import 'package:livro_de_receita/data/dao/ingrediente_dao.dart';
+import 'package:livro_de_receita/data/dao/passo_preparo_dao.dart';
 
 // Classe responsável pelas operações de banco de dados da tabela receita
 class ReceitaDao {

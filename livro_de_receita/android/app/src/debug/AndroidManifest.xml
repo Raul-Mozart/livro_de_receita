@@ -4,4 +4,7 @@
          to allow setting breakpoints, to provide hot reload, etc.
     -->
     <uses-permission android:name="android.permission.INTERNET"/>
+    <!-- Permite chamar o backend local do assistente via HTTP (ex.: http://10.0.2.2:3001)
+         apenas em builds de desenvolvimento. Em produção, use HTTPS. -->
+    <application android:usesCleartextTraffic="true"/>
 </manifest>

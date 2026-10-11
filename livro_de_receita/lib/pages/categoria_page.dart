@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
-import 'cadastro.dart';
-import 'recipe_details.dart';
-import 'recipe_image_widget.dart';
-import 'Infra/data/dao/receita_dao.dart';
-import 'Infra/models/receita.dart';
+import 'package:livro_de_receita/pages/cadastro_page.dart';
+import 'package:livro_de_receita/pages/recipe_details_page.dart';
+import 'package:livro_de_receita/widgets/recipe_image_widget.dart';
+import 'package:livro_de_receita/data/dao/receita_dao.dart';
+import 'package:livro_de_receita/models/receita.dart';
 
 class CategoriaPage extends StatefulWidget {
   final int categoriaId;

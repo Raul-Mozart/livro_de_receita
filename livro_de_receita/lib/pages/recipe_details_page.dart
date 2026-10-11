@@ -1,15 +1,16 @@
 import 'package:flutter/material.dart';
-import 'dart:async';
 import 'dart:io';
 import 'package:flutter/services.dart';
 import 'package:speech_to_text/speech_to_text.dart' as stt;
 import 'package:speech_to_text/speech_recognition_result.dart';
+import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:flutter_tts/flutter_tts.dart';
-import 'cadastro.dart';
-import 'Infra/data/dao/receita_dao.dart';
-import 'Infra/data/dao/ingrediente_dao.dart';
-import 'Infra/data/dao/passo_preparo_dao.dart';
-import 'Infra/data/dao/categoria_dao.dart';
+import 'package:livro_de_receita/pages/cadastro_page.dart';
+import 'package:livro_de_receita/assistant/recipe_assistant_service.dart';
+import 'package:livro_de_receita/data/dao/receita_dao.dart';
+import 'package:livro_de_receita/data/dao/ingrediente_dao.dart';
+import 'package:livro_de_receita/data/dao/passo_preparo_dao.dart';
+import 'package:livro_de_receita/data/dao/categoria_dao.dart';
 
 // Tela que exibe os detalhes completos de uma receita
 class RecipeDetailsPage extends StatefulWidget {
@@ -18,7 +19,7 @@ class RecipeDetailsPage extends StatefulWidget {
   final List<String> ingredients;
   final List<String> instructions;
   final int? recipeId;
-  
+
   // Construtor da página
   const RecipeDetailsPage({
     super.key,
@@ -28,7 +29,7 @@ class RecipeDetailsPage extends StatefulWidget {
     required this.instructions,
     this.recipeId,
   });
-  
+
   @override
   State<RecipeDetailsPage> createState() => _RecipeDetailsPageState();
 }
@@ -48,17 +49,26 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
   bool _assistantActive = false;
   bool _isListening = false;
   bool _isSpeaking = false;
-  Timer? _listeningWatchdog;
   bool _assistantMenuOpen = false;
   bool _assistantWasActive = false;
   String _assistantMode = 'ingredientes';
   int _currentIngredientIndex = 0;
   int _currentStepIndex = 0;
+  String? _selectedLocaleId;
+  final RecipeAssistantService _assistantService = RecipeAssistantService();
+  bool _isProcessing = false;
   String _lastAssistantMessage = '';
+  String? _pendingAssistantAction;
+  final List<RecipeAssistantTurn> _assistantHistory = [];
+  // Identifica a sessão do assistente e a fala mais recente, para descartar
+  // respostas atrasadas de uma sessão anterior
+  int _assistantSession = 0;
+  int _speakToken = 0;
+  int _speechErrorStreak = 0;
   bool _hasChanges = false;
   bool _allowPop = false;
   bool _isLoading = true;
-  
+
   @override
   void initState() {
     super.initState();
@@ -71,30 +81,99 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
     _loadRecipeDetails();
   }
 
+  void _onSpeechStatus(String status) {
+    if (!mounted) return;
+    if (status == 'notListening' || status == 'done') {
+      setState(() {
+        _isListening = false;
+      });
+      if (_assistantActive && !_isSpeaking) {
+        _restartListeningSoon(const Duration(milliseconds: 250));
+      }
+    }
+  }
+
+  // Reabre o microfone depois de uma pequena pausa (reabrir na hora faz o
+  // Android responder "ocupado" e entrar em um ciclo de erros)
+  void _restartListeningSoon(Duration delay) {
+    final session = _assistantSession;
+    Future.delayed(delay, () {
+      if (mounted && _assistantActive && !_isSpeaking && session == _assistantSession) {
+        _startListening();
+      }
+    });
+  }
+
+  void _onSpeechError(SpeechRecognitionError error) {
+    if (!mounted) return;
+    setState(() {
+      _isListening = false;
+    });
+    if (!_assistantActive || _isSpeaking) return;
+    final message = error.errorMsg;
+    // Só desliga quando tentar de novo não resolve (sem permissão ou sem português)
+    if (message == 'error_permission' ||
+        message == 'error_language_not_supported' ||
+        message == 'error_language_unavailable') {
+      final session = _assistantSession;
+      _speak(
+        message == 'error_permission'
+            ? 'Preciso de permissão para usar o microfone. Libere nas configurações do aparelho e toque no botão de novo.'
+            : 'O reconhecimento de voz em português não está disponível neste aparelho.',
+      ).then((_) {
+        if (mounted && session == _assistantSession) _turnOffAssistant();
+      });
+      return;
+    }
+    // No Android todo erro vem marcado como "permanente", mas os comuns (sem fala,
+    // ocupado, cliente, rede) só pedem uma nova tentativa, com pausa que cresce um pouco
+    if (message == 'error_speech_timeout' || message == 'error_no_match') {
+      _speechErrorStreak = 0;
+    } else {
+      _speechErrorStreak++;
+    }
+    _restartListeningSoon(Duration(milliseconds: 250 * (_speechErrorStreak.clamp(0, 8) + 1)));
+  }
+
+  // Desliga o assistente a partir da voz ou de um erro, como o botão faria
+  Future<void> _turnOffAssistant() async {
+    if (!mounted) return;
+    setState(() {
+      _assistantMenuOpen = false;
+      _assistantWasActive = false;
+    });
+    await _stopAssistant();
+  }
+
+  // O SpeechToText é único no app: cada tela de receita precisa registrar
+  // os próprios callbacks, senão eles continuam apontando para a tela anterior
+  void _attachSpeechListeners() {
+    _speech.statusListener = _onSpeechStatus;
+    _speech.errorListener = _onSpeechError;
+  }
+
   Future<void> _initVoiceAssistant() async {
+    // O TTS é configurado primeiro: sem "aguardar fim da fala" o microfone
+    // abriria enquanto o assistente ainda está falando
+    try {
+      await _tts.awaitSpeakCompletion(true);
+      await _tts.setLanguage('pt-BR');
+    } catch (_) {
+      // Mantém o idioma padrão do aparelho se pt-BR não estiver disponível.
+    }
+
     _speechAvailable = await _speech.initialize(
-      onStatus: (status) {
-        if (!mounted) return;
-        if (status == 'notListening' || status == 'done') {
-          setState(() {
-            _isListening = false;
-          });
-          if (_assistantActive && !_isSpeaking) {
-            _startListening();
-          }
-        }
-      },
-      onError: (error) {
-        if (!mounted) return;
-        setState(() {
-          _isListening = false;
-        });
-        if (_assistantActive && !_isSpeaking) {
-          _startListening();
-        }
-      },
+      onStatus: _onSpeechStatus,
+      onError: _onSpeechError,
     );
-    await _tts.awaitSpeakCompletion(true);
+    _attachSpeechListeners();
+
+    // O reconhecimento é sempre em português do Brasil, independente do idioma
+    // configurado na digitação por voz do aparelho (a lista de idiomas do
+    // aparelho às vezes nem responde e podia levar a um idioma errado)
+    if (_speechAvailable) {
+      _selectedLocaleId = 'pt-BR';
+    }
   }
 
   Future<void> _loadRecipeDetails() async {
@@ -116,7 +195,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
             ingredientes
                 .map((i) => '${i.quantidade} ${i.unidadeMedida} de ${i.nome}')
                 .toList();
-        
+
         final passos = await PassoPreparoDao.getAllByReceita(widget.recipeId!);
         // Extrai apenas as descrições dos passos
         _loadedInstructions = passos.map((p) => p.descricao).toList();
@@ -128,7 +207,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         _imageUrl = widget.imageUrl;
         _categoriaNome = null;
       }
-      
+
       // Inicializa todas as checkboxes como desmarcadas
       _ingredientChecked = List.generate(
         _loadedIngredients.length,
@@ -138,7 +217,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         _loadedInstructions.length,
         (_) => false,
       );
-      
+
       // Para o carregamento e atualiza a tela
       setState(() {
         _isLoading = false;
@@ -150,7 +229,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
       _titulo = widget.title;
       _imageUrl = widget.imageUrl;
       _categoriaNome = null;
-      
+
       // Inicializa checkboxes mesmo com erro
       _ingredientChecked = List.generate(
         _loadedIngredients.length,
@@ -160,13 +239,14 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         _loadedInstructions.length,
         (_) => false,
       );
-      
+
       // Para o carregamento
       setState(() {
         _isLoading = false;
       });
     }
   }
+
   // Exibe diálogo de confirmação antes de excluir receita
   Future<void> _mostrarDialogoConfirmacao() async {
     if (widget.recipeId == null) {
@@ -178,7 +258,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
       );
       return;
     }
-    
+
     // Exibe diálogo de confirmação
     return showDialog<void>(
       context: context,
@@ -190,9 +270,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
           content: SingleChildScrollView(
             child: ListBody(
               children: <Widget>[
-                Text(
-                  'Tem certeza que deseja excluir a receita "${_titulo}"?',
-                ),
+                Text('Tem certeza que deseja excluir a receita "$_titulo"?'),
                 SizedBox(height: 8),
                 // Aviso sobre irreversibilidade
                 Text(
@@ -237,20 +315,20 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
             child: ListBody(
               children: <Widget>[
                 Text(
-                  'O assistente fica ouvindo enquanto estiver ativo. '
-                  'Voce pode dizer comandos como:',
+                  'Fale normalmente: o assistente entende o sentido da sua frase e responde com base nesta receita.',
                 ),
                 SizedBox(height: 8),
-                Text('- "Peguei", "Feito", "Conclui", "Pronto" ou "Marcar"'),
-                Text('- "Desmarcar <nome do ingrediente>"'),
-                Text('- "Desmarcar passo <numero>"'),
-                Text('- "Passo <numero>" (ex: "passo 2" ou "passo dois")'),
-                Text('- "Proximo" ou "Avancar"'),
-                Text('- "Voltar passo"'),
-                Text('- "Repetir"'),
-                Text('- "Marcar tudo", "Peguei tudo", "Feito tudo", "Conclui tudo" ou "Pronto tudo"'),
-                Text('- "Desmarcar tudo", "Nao peguei tudo", "Nao fiz tudo" ou "Ainda nao tudo"'),
-                Text('- "Ir para modo de preparo"'),
+                Text('- "O que eu preciso pra fazer essa receita?"'),
+                Text('- "Já peguei a farinha e os ovos."'),
+                Text('- "Quanto de açúcar vai?"'),
+                Text('- "Pronto, terminei. E agora?"'),
+                Text('- "Em que passo eu uso o fermento?"'),
+                Text('- "Quanto tempo fica no forno?"'),
+                Text('- "Volta um passo." / "Repete, por favor."'),
+                Text('- "Pode desligar o assistente."'),
+                Text(
+                  'Não precisa decorar comandos: pergunte do seu jeito, como falaria com alguém na cozinha.',
+                ),
               ],
             ),
           ),
@@ -264,12 +342,13 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
       },
     );
   }
+
   Future<void> _excluirReceita() async {
     try {
       if (widget.recipeId == null) {
         throw Exception('ID da receita não encontrado');
       }
-      
+
       // Exibe indicador de carregamento durante exclusão
       showDialog(
         context: context,
@@ -278,15 +357,15 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
           return Center(child: CircularProgressIndicator());
         },
       );
-      
+
       await ReceitaDao.delete(widget.recipeId!);
-      
+
       // Verifica se a tela ainda está ativa
       if (!mounted) return;
-      
+
       // Fecha o indicador de carregamento
       Navigator.of(context).pop();
-      
+
       // Exibe mensagem de sucesso
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -294,18 +373,18 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
           backgroundColor: Colors.green,
         ),
       );
-      
+
       _allowPop = true;
       Navigator.of(context).pop(true);
     } catch (e) {
       // Verifica se a tela ainda está ativa
       if (!mounted) return;
-      
+
       // Fecha indicador de carregamento se estiver aberto
       if (Navigator.of(context).canPop()) {
         Navigator.of(context).pop();
       }
-      
+
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Erro ao excluir receita: $e'),
@@ -333,216 +412,6 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
     }
   }
 
-  String _normalize(String text) {
-    return text
-        .toLowerCase()
-        .replaceAll(RegExp(r'[áàâãä]'), 'a')
-        .replaceAll(RegExp(r'[éèêë]'), 'e')
-        .replaceAll(RegExp(r'[íìîï]'), 'i')
-        .replaceAll(RegExp(r'[óòôõö]'), 'o')
-        .replaceAll(RegExp(r'[úùûü]'), 'u')
-        .replaceAll('ç', 'c');
-  }
-
-  String _extractIngredientName(String ingrediente) {
-    final lower = ingrediente.toLowerCase();
-    final idx = lower.lastIndexOf(' de ');
-    if (idx != -1 && idx + 4 < ingrediente.length) {
-      return ingrediente.substring(idx + 4).trim();
-    }
-    return ingrediente.trim();
-  }
-
-  String? _extractRequestedName(String normalizedText) {
-    final match = RegExp(r'(ingrediente|item)\s+(.+)$').firstMatch(
-      normalizedText,
-    );
-    if (match == null) return null;
-    var name = match.group(2) ?? '';
-    name = name.replaceAll(RegExp(r'\bpor favor\b'), '').trim();
-    return name.isEmpty ? null : name;
-  }
-
-  String? _extractUnmarkIngredientName(String normalizedText) {
-    final match = RegExp(r'^desmarc\w*\s+(.+)$').firstMatch(normalizedText);
-    if (match == null) return null;
-    var name = match.group(1) ?? '';
-    name = name.replaceFirst(RegExp(r'^(o|a|os|as)\s+'), '');
-    name = name.replaceFirst(RegExp(r'^(ingrediente|item)\s+'), '');
-    name = name.replaceAll(RegExp(r'\bpor favor\b'), '').trim();
-    if (name.startsWith('passo')) return null;
-    return name.isEmpty ? null : name;
-  }
-
-  int? _parseIndexToken(String token) {
-    final parsed = int.tryParse(token);
-    if (parsed != null) return parsed - 1;
-    const ordinals = {
-      'primeiro': 0,
-      'primeira': 0,
-      'segundo': 1,
-      'segunda': 1,
-      'terceiro': 2,
-      'terceira': 2,
-      'quarto': 3,
-      'quarta': 3,
-      'quinto': 4,
-      'quinta': 4,
-      'sexto': 5,
-      'sexta': 5,
-      'setimo': 6,
-      'setima': 6,
-      'oitavo': 7,
-      'oitava': 7,
-      'nono': 8,
-      'nona': 8,
-      'decimo': 9,
-      'decima': 9,
-    };
-    const cardinals = {
-      'um': 0,
-      'uma': 0,
-      'dois': 1,
-      'duas': 1,
-      'tres': 2,
-      'quatro': 3,
-      'cinco': 4,
-      'seis': 5,
-      'sete': 6,
-      'oito': 7,
-      'nove': 8,
-      'dez': 9,
-    };
-    return ordinals[token] ?? cardinals[token];
-  }
-
-  int? _findIndexByKeyword(String normalizedText, String keyword, int max) {
-    if (max <= 0) return null;
-    final digitAfter = RegExp('$keyword\\s*(\\d+)').firstMatch(normalizedText);
-    if (digitAfter != null) {
-      final idx = _parseIndexToken(digitAfter.group(1) ?? '');
-      if (idx != null && idx >= 0 && idx < max) return idx;
-    }
-    final digitBefore = RegExp('(\\d+)\\s+$keyword').firstMatch(normalizedText);
-    if (digitBefore != null) {
-      final idx = _parseIndexToken(digitBefore.group(1) ?? '');
-      if (idx != null && idx >= 0 && idx < max) return idx;
-    }
-    final wordAfter = RegExp('$keyword\\s+([a-z]+)').firstMatch(normalizedText);
-    if (wordAfter != null) {
-      final idx = _parseIndexToken(wordAfter.group(1) ?? '');
-      if (idx != null && idx >= 0 && idx < max) return idx;
-    }
-    final wordBefore = RegExp('([a-z]+)\\s+$keyword').firstMatch(normalizedText);
-    if (wordBefore != null) {
-      final idx = _parseIndexToken(wordBefore.group(1) ?? '');
-      if (idx != null && idx >= 0 && idx < max) return idx;
-    }
-    return null;
-  }
-
-  int _ingredientMatchScore(String text, String ingredientName) {
-    final words = ingredientName
-        .split(RegExp(r'\s+'))
-        .where((w) => w.isNotEmpty);
-    var score = 0;
-    for (final word in words) {
-      if (text.contains(word)) {
-        score += 1;
-      }
-    }
-    return score;
-  }
-
-  bool _allIngredientsChecked() {
-    return _ingredientChecked.isNotEmpty &&
-        _ingredientChecked.every((v) => v);
-  }
-
-  int _resolveIngredientIndexForMark() {
-    if (_loadedIngredients.isEmpty) return -1;
-    if (_currentIngredientIndex >= 0 &&
-        _currentIngredientIndex < _loadedIngredients.length &&
-        !_ingredientChecked[_currentIngredientIndex]) {
-      return _currentIngredientIndex;
-    }
-    return _ingredientChecked.indexWhere((v) => !v);
-  }
-
-  int _resolveStepIndexForMark() {
-    if (_loadedInstructions.isEmpty) return -1;
-    if (_currentStepIndex >= 0 && _currentStepIndex < _loadedInstructions.length) {
-      return _currentStepIndex;
-    }
-    return 0;
-  }
-
-  int _findNextUncheckedIngredient(int fromIndex) {
-    if (_loadedIngredients.isEmpty) return -1;
-    for (var i = fromIndex + 1; i < _ingredientChecked.length; i++) {
-      if (!_ingredientChecked[i]) return i;
-    }
-    for (var i = 0; i <= fromIndex && i < _ingredientChecked.length; i++) {
-      if (!_ingredientChecked[i]) return i;
-    }
-    return -1;
-  }
-
-  Future<void> _falarIngredienteAtual() async {
-    final index = _resolveIngredientIndexForMark();
-    if (index == -1) {
-      await _speakAndResume('Nao ha ingredientes cadastrados.');
-      return;
-    }
-    _currentIngredientIndex = index;
-    await _speakAndResume('Ingrediente: ${_loadedIngredients[index]}.');
-  }
-
-  Future<void> _falarPassoAtual() async {
-    final index = _resolveStepIndexForMark();
-    if (index == -1) {
-      await _speakAndResume('Nao ha passos de preparo cadastrados.');
-      return;
-    }
-    _currentStepIndex = index;
-    await _falarPasso(index);
-  }
-
-  Future<void> _irParaModoPreparo() async {
-    _assistantMode = 'passos';
-    if (_loadedInstructions.isNotEmpty) {
-      _currentStepIndex = 0;
-      await _speakAndResume(
-        'Ingredientes finalizados. Vamos para o modo de preparo. '
-        'Passo 1: ${_loadedInstructions.first}.',
-      );
-    } else {
-      await _speakAndResume(
-        'Ingredientes finalizados. Nao ha passos de preparo cadastrados.',
-      );
-    }
-  }
-
-  Future<void> _avancarIngrediente(int fromIndex) async {
-    final nextIndex = _findNextUncheckedIngredient(fromIndex);
-    if (nextIndex == -1) {
-      await _irParaModoPreparo();
-      return;
-    }
-    _currentIngredientIndex = nextIndex;
-    await _speakAndResume('Proximo ingrediente: ${_loadedIngredients[nextIndex]}.');
-  }
-
-  Future<void> _avancarPasso(int fromIndex) async {
-    final nextIndex = fromIndex + 1;
-    if (nextIndex >= _loadedInstructions.length) {
-      await _speakAndResume('Todos os passos finalizados.');
-      return;
-    }
-    _currentStepIndex = nextIndex;
-    await _falarPasso(nextIndex);
-  }
-
   Future<void> _toggleAssistant() async {
     if (_isLoading) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -562,419 +431,297 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
       );
       return;
     }
-    if (_assistantMenuOpen) {
+
+    if (_assistantActive) {
       setState(() {
         _assistantMenuOpen = false;
-      });
-      if (_assistantWasActive) {
         _assistantWasActive = false;
-        await _resumeAssistant();
-      } else {
-        await _startAssistant();
-      }
+      });
+      await _stopAssistant();
       return;
     }
-    setState(() {
-      _assistantMenuOpen = true;
-      _assistantWasActive = _assistantActive;
-    });
-    if (_assistantActive) {
-      await _stopAssistant();
-    }
-  }
 
-  Future<void> _resumeAssistant() async {
     setState(() {
-      _assistantActive = true;
+      _assistantMenuOpen = false;
+      _assistantWasActive = false;
     });
-    _startListeningWatchdog();
-    await _startListening();
+    await _startAssistant();
   }
 
   Future<void> _startAssistant() async {
+    // Com passos já concluídos, retoma do primeiro passo pendente
+    final hasProgress = _loadedInstructions.isNotEmpty && _instructionChecked.contains(true);
+    final firstPendingStep = _instructionChecked.indexWhere((checked) => !checked);
     setState(() {
       _assistantActive = true;
-      _assistantMode = 'ingredientes';
-      _currentStepIndex = 0;
+      if (hasProgress) {
+        _assistantMode = 'passos';
+        _currentStepIndex = firstPendingStep == -1 ? _loadedInstructions.length - 1 : firstPendingStep;
+      } else {
+        _assistantMode = 'ingredientes';
+        _currentStepIndex = 0;
+      }
     });
-    _startListeningWatchdog();
-    final ingredientesTexto = _loadedIngredients.isEmpty
-        ? 'Nenhum ingrediente informado.'
-        : _loadedIngredients.join(', ');
-    await _speakAndResume(
-      'Vamos começar a receita $_titulo. Pegue os ingredientes: '
-      '$ingredientesTexto. Quando pegar, diga "peguei".',
-    );
+    _assistantSession++;
+    _isProcessing = false;
+    _speechErrorStreak = 0;
+    _attachSpeechListeners();
+    _assistantHistory.clear();
+    _lastAssistantMessage = '';
+    final firstUnchecked = _ingredientChecked.indexWhere((checked) => !checked);
+    _currentIngredientIndex = firstUnchecked == -1 ? 0 : firstUnchecked;
+    String welcome;
+    try {
+      final context = _buildAssistantContext();
+      _pendingAssistantAction = RecipeAssistantService.welcomePendingAction(context);
+      welcome = RecipeAssistantService.welcomeMessage(context);
+    } catch (_) {
+      _pendingAssistantAction = null;
+      welcome = 'Vamos começar a receita $_titulo. Pode falar comigo normalmente.';
+    }
+    _rememberTurn('assistant', welcome);
+    // Prepara o interpretador enquanto a boas-vindas está sendo falada
+    Future.delayed(const Duration(milliseconds: 300), () {
+      if (mounted && _assistantActive) {
+        RecipeAssistantService.warmUp(_buildAssistantContext());
+      }
+    });
+    await _speakAndResume(welcome);
   }
 
   Future<void> _stopAssistant() async {
-    await _speech.stop();
+    _assistantSession++;
+    _isProcessing = false;
+    _speakToken++; // interrompe uma fala em andamento
+    _isSpeaking = false;
+    // Marca como desligado antes de parar o microfone, para o aviso de
+    // "parou de escutar" não reabrir a escuta
+    _assistantActive = false;
+    if (mounted) {
+      setState(() {
+        _isListening = false;
+      });
+    }
+    if (_speech.isListening) {
+      await _speech.stop();
+    }
     await _tts.stop();
-    _stopListeningWatchdog();
-    if (!mounted) return;
-    setState(() {
-      _assistantActive = false;
-      _isListening = false;
-    });
-  }
-
-  void _startListeningWatchdog() {
-    _listeningWatchdog?.cancel();
-    _listeningWatchdog = Timer.periodic(
-      const Duration(seconds: 2),
-      (_) {
-        if (!mounted) return;
-        if (!_assistantActive || _isSpeaking) return;
-        if (!_isListening) {
-          _startListening();
-        }
-      },
-    );
-  }
-
-  void _stopListeningWatchdog() {
-    _listeningWatchdog?.cancel();
-    _listeningWatchdog = null;
   }
 
   Future<void> _startListening() async {
-    if (!_assistantActive || _isListening || _isSpeaking) return;
-    final ok = _speechAvailable;
-    if (!ok) return;
+    if (!mounted) return;
+    // Não abre o microfone enquanto a fala anterior ainda está sendo interpretada
+    if (!_assistantActive || _isListening || _isSpeaking || _isProcessing) return;
+    if (!_speechAvailable) return;
+    if (_speech.isListening) return;
+
     setState(() {
       _isListening = true;
     });
-    await _speech.listen(
-      onResult: _onSpeechResult,
-      listenFor: const Duration(seconds: 60),
-      pauseFor: const Duration(seconds: 6),
-      partialResults: false,
-    );
+
+    try {
+      await _speech.listen(
+        localeId: _selectedLocaleId ?? 'pt-BR',
+        onResult: _onSpeechResult,
+        listenFor: const Duration(seconds: 60),
+        pauseFor: const Duration(seconds: 6),
+        // Resultados parciais mantêm a escuta aberta enquanto a pessoa fala
+        // (sem eles, frases longas eram cortadas); só o resultado final é usado
+        listenOptions: stt.SpeechListenOptions(partialResults: true),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _isListening = false;
+      });
+    }
   }
 
   void _onSpeechResult(SpeechRecognitionResult result) {
     if (!result.finalResult) return;
-    final texto = result.recognizedWords.trim();
-    if (texto.isEmpty) {
-      if (_assistantActive && !_isSpeaking) {
+    _speechErrorStreak = 0;
+    // O reconhecedor devolve a transcrição mais provável e outras alternativas;
+    // todas são consideradas, porque a primeira às vezes vem com palavra trocada
+    final transcricoes = <String>[];
+    for (final texto in [
+      result.recognizedWords,
+      ...result.alternates.map((a) => a.recognizedWords),
+    ]) {
+      final limpo = texto.trim();
+      if (limpo.isNotEmpty && !transcricoes.contains(limpo)) transcricoes.add(limpo);
+    }
+    if (transcricoes.isEmpty) {
+      if (_assistantActive && !_isSpeaking && !_isListening) {
         _startListening();
       }
       return;
     }
-    _processVoiceCommand(texto);
+    _processVoiceCommand(transcricoes);
   }
 
-  Future<void> _speak(String text) async {
+  // O TTS do Android não fala textos muito longos de uma vez (limite de ~4000
+  // caracteres); divide em blocos terminados em fim de frase
+  List<String> _speechChunks(String text, {int maxLength = 3500}) {
+    if (text.length <= maxLength) return [text];
+    final chunks = <String>[];
+    var current = StringBuffer();
+    for (final sentence in text.split(RegExp(r'(?<=[.!?])\s+'))) {
+      if (current.length + sentence.length + 1 > maxLength && current.isNotEmpty) {
+        chunks.add(current.toString().trim());
+        current = StringBuffer();
+      }
+      if (sentence.length > maxLength) {
+        for (var i = 0; i < sentence.length; i += maxLength) {
+          chunks.add(sentence.substring(i, (i + maxLength).clamp(0, sentence.length)));
+        }
+        continue;
+      }
+      current.write('$sentence ');
+    }
+    if (current.isNotEmpty) chunks.add(current.toString().trim());
+    return chunks;
+  }
+
+  /// Fala o texto; retorna false se outra fala começou nesse meio tempo.
+  Future<bool> _speak(String text) async {
+    final token = ++_speakToken;
     _lastAssistantMessage = text;
     _isSpeaking = true;
-    await _speech.stop();
-    setState(() {
-      _isListening = false;
-    });
+    if (_speech.isListening) {
+      await _speech.stop();
+    }
+    if (mounted) {
+      setState(() {
+        _isListening = false;
+      });
+    }
     await _tts.stop();
-    await _tts.speak(text);
+    for (final chunk in _speechChunks(text)) {
+      if (token != _speakToken) return false;
+      try {
+        await _tts
+            .speak(chunk)
+            .timeout(Duration(seconds: 20 + chunk.length ~/ 10));
+      } catch (_) {
+        // TTS travado: interrompe a fala para o microfone não abrir por cima dela
+        await _tts.stop();
+        break;
+      }
+    }
+    if (token != _speakToken) return false;
     _isSpeaking = false;
+    return true;
   }
 
   Future<void> _speakAndResume(String text) async {
-    await _speak(text);
-    if (_assistantActive) {
+    final stillLatest = await _speak(text);
+    if (stillLatest && _assistantActive) {
       await _startListening();
     }
   }
 
-  Future<void> _falarIngredientes() async {
-    final texto = _loadedIngredients.isEmpty
-        ? 'Nao ha ingredientes cadastrados.'
-        : 'Ingredientes: ${_loadedIngredients.join(', ')}.';
-    await _speakAndResume(texto);
-  }
-
-  Future<void> _falarPasso(int index) async {
-    if (index < 0 || index >= _loadedInstructions.length) return;
-    final texto = 'Passo ${index + 1}: ${_loadedInstructions[index]}.';
-    await _speakAndResume(texto);
-  }
-
-  Future<void> _falarModoPreparo() async {
-    if (_loadedInstructions.isEmpty) {
-      await _speakAndResume('Nao ha passos de preparo cadastrados.');
-      return;
-    }
-    final texto = _loadedInstructions
-        .asMap()
-        .entries
-        .map((e) => 'Passo ${e.key + 1}: ${e.value}')
-        .join('. ');
-    await _speakAndResume('Modo de preparo: $texto.');
-  }
-
-  int? _findIngredientIndex(
-    String normalizedText, {
-    String? requestedName,
-  }) {
-    final requested = requestedName?.trim();
-    if (requested == null || requested.isEmpty) return null;
-    final requestedNorm = _normalize(requested);
-    final byIndex = _parseIndexToken(requestedNorm);
-    if (byIndex != null &&
-        byIndex >= 0 &&
-        byIndex < _loadedIngredients.length) {
-      return byIndex;
-    }
-
-    final targetText = requestedNorm;
-    var bestScore = 0;
-    int? bestIndex;
-    for (var i = 0; i < _loadedIngredients.length; i++) {
-      final nome = _extractIngredientName(_loadedIngredients[i]);
-      final nomeNorm = _normalize(nome);
-      if (nomeNorm.isEmpty) continue;
-      final score = _ingredientMatchScore(targetText, nomeNorm);
-      if (score > bestScore) {
-        bestScore = score;
-        bestIndex = i;
-      }
-    }
-
-    return bestScore > 0 ? bestIndex : null;
-  }
-
-  int? _findStepIndex(String normalizedText) {
-    final byPasso = _findIndexByKeyword(
-      normalizedText,
-      'passo',
-      _loadedInstructions.length,
+  // Estado atual da receita e da conversa, enviado para o interpretador
+  RecipeAssistantContext _buildAssistantContext() {
+    return RecipeAssistantService.buildContext(
+      title: _titulo,
+      category: _categoriaNome,
+      ingredients: _loadedIngredients,
+      instructions: _loadedInstructions,
+      ingredientChecked: _ingredientChecked,
+      instructionChecked: _instructionChecked,
+      currentStepIndex: _currentStepIndex,
+      currentIngredientIndex: _currentIngredientIndex,
+      mode: _assistantMode,
+      lastResponse: _lastAssistantMessage,
+      pendingAction: _pendingAssistantAction,
+      history: List.unmodifiable(_assistantHistory),
     );
-    if (byPasso != null) return byPasso;
-    for (var i = 0; i < _loadedInstructions.length; i++) {
-      final passoNorm = _normalize(_loadedInstructions[i]);
-      if (passoNorm.isNotEmpty && normalizedText.contains(passoNorm)) {
-        return i;
-      }
-    }
-    return null;
   }
 
-  Future<void> _processVoiceCommand(String transcript) async {
-    final normalized = _normalize(transcript);
-    final wantsGoToPreparation =
-      RegExp(r'\bir\s+para\s+o?\s*modo de preparo\b')
-        .hasMatch(normalized) ||
-      RegExp(r'\bir\s+pro\s+modo de preparo\b').hasMatch(normalized) ||
-      RegExp(r'\bir\s+para\s+o?\s*preparo\b').hasMatch(normalized) ||
-      RegExp(r'\bir\s+pro\s+preparo\b').hasMatch(normalized);
-    final wantsRepeat = normalized.contains('repet');
-    final mentionsIngredientes = normalized.contains('ingrediente');
-    final mentionsPassos =
-        normalized.contains('passo') || normalized.contains('preparo');
-    final wantsNext =
-        normalized.contains('proximo') || normalized.contains('avancar');
-    final wantsPrev =
-      RegExp(r'\bvoltar\s+(o\s+)?passo\b').hasMatch(normalized);
-    final wantsUnmark = normalized.contains('desmarc') ||
-        normalized.contains('ainda nao') ||
-        normalized.contains('nao peguei') ||
-        normalized.contains('nao fiz');
-    final wantsMark = !wantsUnmark &&
-      (normalized.contains('peguei') ||
-        normalized.contains('feito') ||
-        normalized.contains('conclui') ||
-        normalized.contains('pronto') ||
-        normalized.contains('marcar'));
-    final wantsMarkAll = RegExp(
-      r'\b(peguei|feito|conclui|pronto|marcar)\b.*\btudo\b',
-    ).hasMatch(normalized);
-    final wantsUnmarkAll = RegExp(
-      r'\b(desmarc\w*|nao peguei|nao fiz|ainda nao)\b.*\btudo\b',
-    ).hasMatch(normalized);
-    final unmarkIngredientName =
-        wantsUnmark ? _extractUnmarkIngredientName(normalized) : null;
-    final requestedName = unmarkIngredientName;
+  void _rememberTurn(String role, String text) {
+    if (text.trim().isEmpty) return;
+    _assistantHistory.add(RecipeAssistantTurn(role: role, text: text));
+    if (_assistantHistory.length > 12) {
+      _assistantHistory.removeRange(0, _assistantHistory.length - 12);
+    }
+  }
 
-    if (wantsGoToPreparation) {
-      _assistantMode = 'passos';
-      if (_loadedInstructions.isEmpty) {
-        await _speakAndResume('Nao ha passos de preparo cadastrados.');
-        return;
+  // Aplica na tela o que o assistente entendeu (marcações, passo e modo)
+  void _applyAssistantIntent(RecipeAssistantIntent intent) {
+    setState(() {
+      for (final i in intent.checkIngredients) {
+        if (i >= 0 && i < _ingredientChecked.length) _ingredientChecked[i] = true;
       }
-      _currentStepIndex = 0;
-      await _speakAndResume(
-        'Ok, vamos para o modo de preparo. '
-        'Passo 1: ${_loadedInstructions.first}.',
+      for (final i in intent.uncheckIngredients) {
+        if (i >= 0 && i < _ingredientChecked.length) _ingredientChecked[i] = false;
+      }
+      for (final i in intent.checkSteps) {
+        if (i >= 0 && i < _instructionChecked.length) _instructionChecked[i] = true;
+      }
+      for (final i in intent.uncheckSteps) {
+        if (i >= 0 && i < _instructionChecked.length) _instructionChecked[i] = false;
+      }
+    });
+    if (intent.mode != null) {
+      _assistantMode = intent.mode!;
+    }
+    if (_loadedInstructions.isNotEmpty) {
+      _currentStepIndex = intent.stepIndex.clamp(0, _loadedInstructions.length - 1);
+    }
+    final ingredientIndex = intent.ingredientIndex;
+    if (ingredientIndex != null &&
+        ingredientIndex >= 0 &&
+        ingredientIndex < _loadedIngredients.length) {
+      _currentIngredientIndex = ingredientIndex;
+    }
+    _pendingAssistantAction = intent.pendingAction;
+  }
+
+  // Interpreta a fala livre do usuário e responde com base na receita
+  Future<void> _processVoiceCommand(List<String> transcricoes) async {
+    if (_isProcessing || !_assistantActive) return;
+    _isProcessing = true;
+    final session = _assistantSession;
+    var transcript = transcricoes.first;
+    RecipeAssistantIntent intent;
+    try {
+      final (escolhida, resultado) = await _assistantService.interpretAlternatives(
+        transcripts: transcricoes,
+        context: _buildAssistantContext(),
       );
+      transcript = escolhida;
+      intent = resultado;
+      assert(() {
+        debugPrint('[assistente] ouvi: $transcricoes -> "$transcript" = ${intent.action} (${intent.source})');
+        return true;
+      }());
+    } catch (_) {
+      intent = RecipeAssistantIntent(
+        action: 'general',
+        stepIndex: _currentStepIndex,
+        responseText: 'Desculpe, não consegui entender. Pode repetir de outro jeito?',
+      );
+    } finally {
+      if (session == _assistantSession) _isProcessing = false;
+    }
+
+    // Assistente desligado/religado enquanto esperava a IA: descarta a resposta
+    if (!mounted || !_assistantActive || session != _assistantSession) return;
+    _rememberTurn('user', transcript);
+    _applyAssistantIntent(intent);
+    _rememberTurn('assistant', intent.responseText);
+
+    if (intent.stopAssistant) {
+      await _speak(intent.responseText);
+      if (!mounted) return;
+      setState(() {
+        _assistantMenuOpen = false;
+        _assistantWasActive = false;
+      });
+      await _stopAssistant();
       return;
     }
-
-    if (wantsRepeat) {
-      if (_assistantMode == 'ingredientes') {
-        await _falarIngredienteAtual();
-        return;
-      }
-      if (_assistantMode == 'passos') {
-        await _falarPassoAtual();
-        return;
-      }
-    }
-
-    if (wantsNext || wantsPrev) {
-      _assistantMode = 'passos';
-      if (_loadedInstructions.isEmpty) {
-        await _speakAndResume('Nao ha passos de preparo cadastrados.');
-        return;
-      }
-      if (wantsNext) {
-        _currentStepIndex =
-            (_currentStepIndex + 1).clamp(0, _loadedInstructions.length - 1);
-      } else {
-        _currentStepIndex =
-            (_currentStepIndex - 1).clamp(0, _loadedInstructions.length - 1);
-      }
-      await _falarPasso(_currentStepIndex);
-      return;
-    }
-
-    if (mentionsIngredientes || requestedName != null || _assistantMode == 'ingredientes') {
-      if (wantsUnmarkAll) {
-        setState(() {
-          for (var i = 0; i < _ingredientChecked.length; i++) {
-            _ingredientChecked[i] = false;
-          }
-        });
-        await _speakAndResume('Ingredientes desmarcados.');
-        return;
-      }
-
-      if (wantsMarkAll) {
-        setState(() {
-          for (var i = 0; i < _ingredientChecked.length; i++) {
-            _ingredientChecked[i] = true;
-          }
-        });
-        await _irParaModoPreparo();
-        return;
-      }
-
-      final ingredientIndex = _findIngredientIndex(
-        normalized,
-        requestedName: requestedName,
-      );
-      if (ingredientIndex != null) {
-        final shouldMark = !wantsUnmark;
-        setState(() {
-          _ingredientChecked[ingredientIndex] = shouldMark;
-        });
-        _currentIngredientIndex = ingredientIndex;
-        if (shouldMark) {
-          await _avancarIngrediente(ingredientIndex);
-          return;
-        }
-        _assistantMode = 'ingredientes';
-        await _speakAndResume(
-          'Ingrediente desmarcado. Pegue o ingrediente: '
-          '${_loadedIngredients[ingredientIndex]}. '
-          'Quando pegar, diga "peguei".',
-        );
-        return;
-      }
-
-      if (wantsMark && !wantsMarkAll && !wantsUnmarkAll) {
-        final nextIndex = _resolveIngredientIndexForMark();
-        if (nextIndex != -1) {
-          setState(() {
-            _ingredientChecked[nextIndex] = true;
-          });
-          _currentIngredientIndex = nextIndex;
-          await _avancarIngrediente(nextIndex);
-          return;
-        }
-      }
-
-      if (wantsUnmark && !wantsMarkAll && !wantsUnmarkAll) {
-        final index = _resolveIngredientIndexForMark();
-        if (index != -1) {
-          setState(() {
-            _ingredientChecked[index] = false;
-          });
-          _currentIngredientIndex = index;
-          _assistantMode = 'ingredientes';
-          await _speakAndResume(
-            'Ingrediente desmarcado. Pegue o ingrediente: '
-            '${_loadedIngredients[index]}. '
-            'Quando pegar, diga "peguei".',
-          );
-          return;
-        }
-      }
-    }
-
-    if (mentionsPassos || _assistantMode == 'passos') {
-      if (wantsUnmarkAll) {
-        setState(() {
-          for (var i = 0; i < _instructionChecked.length; i++) {
-            _instructionChecked[i] = false;
-          }
-        });
-        await _speakAndResume('Passos desmarcados.');
-        return;
-      }
-      if (wantsMarkAll) {
-        setState(() {
-          for (var i = 0; i < _instructionChecked.length; i++) {
-            _instructionChecked[i] = true;
-          }
-        });
-        await _speakAndResume('Todos os passos marcados.');
-        return;
-      }
-
-      final stepIndex = _findStepIndex(normalized);
-      if (stepIndex != null) {
-        _assistantMode = 'passos';
-        _currentStepIndex = stepIndex;
-        if (wantsMark || wantsUnmark) {
-          setState(() {
-            _instructionChecked[stepIndex] = !wantsUnmark;
-          });
-          if (wantsUnmark) {
-            await _speakAndResume('Passo desmarcado.');
-            await _falarPasso(stepIndex);
-            return;
-          }
-          await _avancarPasso(stepIndex);
-          return;
-        }
-        await _falarPasso(stepIndex);
-        return;
-      }
-
-      if (wantsMark && !wantsMarkAll && !wantsUnmarkAll) {
-        final index = _resolveStepIndexForMark();
-        if (index != -1) {
-          setState(() {
-            _instructionChecked[index] = true;
-          });
-          _currentStepIndex = index;
-          await _avancarPasso(index);
-          return;
-        }
-      }
-
-      if (wantsUnmark && !wantsMarkAll && !wantsUnmarkAll) {
-        final index = _resolveStepIndexForMark();
-        if (index != -1) {
-          setState(() {
-            _instructionChecked[index] = false;
-          });
-          _currentStepIndex = index;
-          await _speakAndResume('Passo desmarcado.');
-          await _falarPasso(index);
-          return;
-        }
-      }
-    }
-
-    await _speakAndResume('Nao entendi, por favor, repita o comando.');
+    await _speakAndResume(intent.responseText);
   }
 
   String _buildRecipeShareText() {
@@ -1011,7 +758,11 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
 
   @override
   void dispose() {
-    _stopListeningWatchdog();
+    _assistantActive = false;
+    _assistantSession++;
+    _speakToken++;
+    if (_speech.statusListener == _onSpeechStatus) _speech.statusListener = null;
+    if (_speech.errorListener == _onSpeechError) _speech.errorListener = null;
     _speech.stop();
     _tts.stop();
     super.dispose();
@@ -1019,13 +770,12 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
 
   @override
   Widget build(BuildContext context) {
-    return WillPopScope(
-      onWillPop: () async {
-        if (_allowPop) {
-          return true;
+    return PopScope(
+      canPop: _allowPop,
+      onPopInvokedWithResult: (didPop, result) {
+        if (!didPop) {
+          Navigator.pop(context, _hasChanges);
         }
-        Navigator.pop(context, _hasChanges);
-        return false;
       },
       child: Scaffold(
         appBar: AppBar(
@@ -1046,11 +796,13 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
               IconButton(
                 icon: Icon(Icons.edit),
                 onPressed: () async {
+                  // O assistente não continua ouvindo na tela de edição
+                  if (_assistantActive) await _turnOffAssistant();
+                  if (!context.mounted) return;
                   final result = await Navigator.push(
                     context,
                     MaterialPageRoute(
-                      builder:
-                          (context) => Cadastro(recipeId: widget.recipeId),
+                      builder: (context) => Cadastro(recipeId: widget.recipeId),
                     ),
                   );
                   if (result == true && mounted) {
@@ -1102,7 +854,8 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
                                 errorBuilder: (context, error, stackTrace) {
                                   return Center(
                                     child: Column(
-                                      mainAxisAlignment: MainAxisAlignment.center,
+                                      mainAxisAlignment:
+                                          MainAxisAlignment.center,
                                       children: [
                                         Icon(
                                           Icons.restaurant,
@@ -1149,7 +902,9 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
                             SizedBox(height: 12),
                             ..._loadedIngredients.asMap().entries.map(
                               (entry) => Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 4,
+                                ),
                                 child: Row(
                                   children: [
                                     Checkbox(
@@ -1190,7 +945,9 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
                             SizedBox(height: 12),
                             ..._loadedInstructions.asMap().entries.map(
                               (entry) => Padding(
-                                padding: const EdgeInsets.symmetric(vertical: 4),
+                                padding: const EdgeInsets.symmetric(
+                                  vertical: 4,
+                                ),
                                 child: Row(
                                   crossAxisAlignment: CrossAxisAlignment.center,
                                   children: [
@@ -1238,8 +995,8 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
                 onPressed: _mostrarInfoAssistente,
                 backgroundColor: Colors.white,
                 foregroundColor: Colors.red.shade600,
-                child: Icon(Icons.info_outline),
                 tooltip: 'Como usar o assistente',
+                child: Icon(Icons.info_outline),
               ),
             if (_assistantMenuOpen || _assistantActive || _isSpeaking)
               SizedBox(height: 8),
@@ -1247,6 +1004,14 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
               heroTag: 'assistant-main',
               onPressed: _toggleAssistant,
               backgroundColor: Colors.red.shade600,
+              tooltip:
+                  _assistantMenuOpen
+                      ? (_assistantWasActive
+                          ? 'Retomar assistente'
+                          : 'Ativar assistente')
+                      : (_assistantActive
+                          ? 'Assistente ativo'
+                          : 'Ativar assistente'),
               child: Icon(
                 _assistantMenuOpen
                     ? Icons.pause
@@ -1254,13 +1019,6 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
                         ? (_isListening ? Icons.mic : Icons.mic_none)
                         : Icons.restaurant_menu),
               ),
-              tooltip: _assistantMenuOpen
-                  ? (_assistantWasActive
-                      ? 'Retomar assistente'
-                      : 'Ativar assistente')
-                  : (_assistantActive
-                      ? 'Assistente ativo'
-                      : 'Ativar assistente'),
             ),
           ],
         ),

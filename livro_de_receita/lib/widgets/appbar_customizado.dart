@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import './cadastro.dart';
+import 'package:livro_de_receita/pages/cadastro_page.dart';
 
 class AppbarCustomizado extends StatelessWidget implements PreferredSizeWidget {
   final String? titulo;

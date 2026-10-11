@@ -1,5 +1,5 @@
-import '../db_provider.dart';
-import '../../models/ingrediente.dart';
+import 'package:livro_de_receita/data/db_provider.dart';
+import 'package:livro_de_receita/models/ingrediente.dart';
 
 // Classe responsável pelas operações de banco de dados da tabela ingrediente
 class IngredienteDao {

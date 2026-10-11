@@ -1,17 +1,22 @@
 import 'package:flutter/material.dart';
-import 'appbar.dart';
-import 'cadastro.dart';
-import 'categoria_page.dart';
-import 'recipe_details.dart';
-import 'recipe_image_widget.dart';
-import 'Infra/data/db_provider.dart';
-import 'Infra/models/receita.dart';
-import 'Infra/data/dao/receita_dao.dart';
+import 'package:flutter_dotenv/flutter_dotenv.dart' as dotenv;
+import 'package:livro_de_receita/widgets/appbar_customizado.dart';
+import 'package:livro_de_receita/pages/cadastro_page.dart';
+import 'package:livro_de_receita/pages/categoria_page.dart';
+import 'package:livro_de_receita/pages/recipe_details_page.dart';
+import 'package:livro_de_receita/widgets/recipe_image_widget.dart';
+import 'package:livro_de_receita/data/db_provider.dart';
+import 'package:livro_de_receita/models/receita.dart';
+import 'package:livro_de_receita/data/dao/receita_dao.dart';
 
 void main() async {
 
   // Garante que o Flutter seja inicializado antes de usar plugins
   WidgetsFlutterBinding.ensureInitialized();
+
+  // Carrega as variáveis de ambiente do projeto antes do app iniciar
+  // (opcional: sem o app.env o assistente funciona só com o interpretador local)
+  await dotenv.dotenv.load(fileName: 'assets/config/app.env', isOptional: true);
 
   // Inicializa o banco de dados antes de executar o app
   await DBProvider().database;

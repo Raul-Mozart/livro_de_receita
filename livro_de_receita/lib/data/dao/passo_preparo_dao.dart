@@ -1,5 +1,5 @@
-import '../db_provider.dart';
-import '../../models/passo_preparo.dart';
+import 'package:livro_de_receita/data/db_provider.dart';
+import 'package:livro_de_receita/models/passo_preparo.dart';
 
 // Classe responsável pelas operações de banco de dados da tabela passo_preparo
 class PassoPreparoDao {

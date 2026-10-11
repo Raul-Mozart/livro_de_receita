@@ -19,7 +19,7 @@ Este guia explica **passo a passo** como o banco de dados SQLite funciona no apl
 Quando você abre o aplicativo pela primeira vez, o código faz isso:
 
 ```dart
-// No arquivo db_provider.dart
+// No arquivo lib/data/db_provider.dart
 class DBProvider {
   // Cria uma conexão única com o banco de dados
   Future<Database> get database async {
@@ -139,7 +139,7 @@ Vamos imaginar que você quer salvar esta receita:
 Quando você vai em "Adicionar Receita" e preenche os campos, isso acontece:
 
 ```dart
-// No arquivo cadastro.dart
+// No arquivo lib/pages/cadastro_page.dart
 _salvar() async {
   // 1. Primeiro salva a receita principal
   Receita novaReceita = Receita(
@@ -161,7 +161,7 @@ _salvar() async {
 ### Como funciona o `ReceitaDao.insert()`:
 
 ```dart
-// No arquivo receita_dao.dart
+// No arquivo lib/data/dao/receita_dao.dart
 static Future<int> insert(Receita receita) async {
   // Pega a conexão com o banco
   final db = await DBProvider().database;
@@ -223,7 +223,7 @@ for (int i = 0; i < _passos.length; i++) {
 Quando você abre o app, ele mostra todas as receitas. Veja como:
 
 ```dart
-// No arquivo categoria_page.dart
+// No arquivo lib/pages/categoria_page.dart
 _carregarReceitas() async {
   // Busca todas as receitas no banco
   List<Receita> todasReceitas = await ReceitaDao.getAll();
@@ -237,7 +237,7 @@ _carregarReceitas() async {
 ### Como o `ReceitaDao.getAll()` funciona:
 
 ```dart
-// No arquivo receita_dao.dart
+// No arquivo lib/data/dao/receita_dao.dart
 static Future<List<Receita>> getAll() async {
   // Conecta com o banco
   final db = await DBProvider().database;
@@ -258,7 +258,7 @@ static Future<List<Receita>> getAll() async {
 ### Quando você clica em uma receita:
 
 ```dart
-// No arquivo recipe_details.dart
+// No arquivo lib/pages/recipe_details_page.dart
 _carregarDetalhes() async {
   // Busca ingredientes da receita
   _ingredientes = await IngredienteDao.getAllByReceita(widget.receita.id);
@@ -273,7 +273,7 @@ _carregarDetalhes() async {
 ### Como busca ingredientes de UMA receita:
 
 ```dart
-// No arquivo ingrediente_dao.dart
+// No arquivo lib/data/dao/ingrediente_dao.dart
 static Future<List<Ingrediente>> getAllByReceita(int receitaId) async {
   final db = await DBProvider().database;
   
@@ -330,7 +330,7 @@ static Future<int> update(Receita receita) async {
 Quando você exclui uma receita, **tem que excluir tudo relacionado**:
 
 ```dart
-// No arquivo receita_dao.dart
+// No arquivo lib/data/dao/receita_dao.dart
 static Future delete(int id) async {
   final db = await DBProvider().database;
   
@@ -356,7 +356,7 @@ static Future delete(int id) async {
 ### Como excluir ingredientes de uma receita:
 
 ```dart
-// No arquivo ingrediente_dao.dart
+// No arquivo lib/data/dao/ingrediente_dao.dart
 static Future<int> deleteByReceita(int receitaId) async {
   final db = await DBProvider().database;
   

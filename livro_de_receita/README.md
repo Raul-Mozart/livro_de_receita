@@ -10,6 +10,8 @@ O aplicativo foi desenvolvido com o objetivo de facilitar a organização de rec
 - Visualizar detalhes completos das receitas
 - Acompanhar o progresso do preparo com checkboxes interativas
 - Gerenciar uma biblioteca pessoal de receitas
+- Cozinhar com um assistente de voz que entende fala livre sobre a receita
+  (veja [docs/ASSISTENTE_DE_VOZ.md](docs/ASSISTENTE_DE_VOZ.md))
 
 ## 🛠️ Tecnologias Utilizadas
 
@@ -52,27 +54,43 @@ dev_dependencies:
 ### Estrutura de Diretórios
 ```
 lib/
-├── main.dart                    # Ponto de entrada da aplicação
-├── appbar.dart                  # Widget personalizado da barra superior
-├── cadastro.dart                # Tela de cadastro de receitas
-├── categoria_page.dart          # Tela de listagem por categoria
-├── recipe_details.dart          # Tela de detalhes da receita
-├── recipe_image_widget.dart     # Widget para exibição de imagens
-└── Infra/                       # Camada de infraestrutura
-    ├── data/
-    │   ├── db_provider.dart     # Provedor do banco de dados
-    │   └── dao/                 # Data Access Objects
-    │       ├── categoria_dao.dart
-    │       ├── receita_dao.dart
-    │       ├── ingrediente_dao.dart
-    │       └── passo_preparo_dao.dart
-    └── models/                  # Modelos de dados
-        ├── categoria.dart
-        ├── receita.dart
-        ├── ingrediente.dart
-        ├── passo_preparo.dart
-        └── foto.dart
+├── main.dart                        # Ponto de entrada da aplicação
+├── pages/                           # Telas
+│   ├── cadastro_page.dart           # Cadastro e edição de receitas
+│   ├── categoria_page.dart          # Listagem por categoria
+│   └── recipe_details_page.dart     # Detalhes da receita e assistente de voz
+├── widgets/                         # Componentes reutilizáveis
+│   ├── appbar_customizado.dart      # Barra superior
+│   └── recipe_image_widget.dart     # Exibição de imagens
+├── assistant/                       # Assistente de voz
+│   ├── recipe_assistant_service.dart    # Decide entre modo local e IA do backend
+│   ├── local_recipe_interpreter.dart    # Entende a fala no próprio aparelho
+│   ├── recipe_language.dart             # Normalização da fala e dos ingredientes
+│   └── recipe_assistant_models.dart     # Contexto e resultado da interpretação
+├── data/                            # Acesso ao banco de dados
+│   ├── db_provider.dart             # Provedor do banco SQLite
+│   └── dao/                         # Data Access Objects
+│       ├── categoria_dao.dart
+│       ├── receita_dao.dart
+│       ├── ingrediente_dao.dart
+│       └── passo_preparo_dao.dart
+└── models/                          # Modelos de dados
+    ├── categoria.dart
+    ├── receita.dart
+    ├── ingrediente.dart
+    └── passo_preparo.dart
+
+assets/config/      # Configuração local do assistente (app.env, fora do git)
+backend/            # Servidor do assistente (guarda a chave da IA)
+docs/               # Documentação (banco, diagramas, assistente, como rodar)
+third_party/        # Cópia ajustada do plugin speech_to_text
 ```
+
+### Documentação
+- [Como rodar o projeto no celular](docs/INICIALIZAR_PROJETO.md)
+- [Assistente de voz e backend](docs/ASSISTENTE_DE_VOZ.md)
+- [Banco de dados](docs/DATABASE.md)
+- [Diagramas](docs/DIAGRAMAS.md)
 
 ### Entidades Principais
 
