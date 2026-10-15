@@ -1,0 +1,39 @@
+rules_version = '2';
+
+// Cada usuário só enxerga as próprias receitas: users/{uid}/receitas/{receitaId}.
+// Tudo o que não está liberado abaixo é negado.
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    function isOwner(uid) {
+      return request.auth != null && request.auth.uid == uid;
+    }
+
+    // Campos aceitos e limites de tamanho (o app grava sempre o documento inteiro)
+    function isValidRecipe(data) {
+      return data.keys().hasOnly([
+          'titulo', 'descricao', 'tempoPreparo', 'porcoes', 'dificuldade',
+          'dataCadastro', 'categoriaId', 'imagem', 'ingredientes', 'passos',
+          'atualizadoEm'])
+        && data.keys().hasAll([
+          'titulo', 'descricao', 'tempoPreparo', 'porcoes', 'dificuldade',
+          'dataCadastro', 'categoriaId', 'ingredientes', 'passos', 'atualizadoEm'])
+        && data.titulo is string && data.titulo.size() > 0 && data.titulo.size() <= 200
+        && data.descricao is string && data.descricao.size() <= 2000
+        && data.tempoPreparo is int && data.porcoes is int && data.dificuldade is int
+        && data.dataCadastro is timestamp
+        && data.categoriaId in [1, 2, 3]
+        && (!('imagem' in data) || data.imagem == null
+            || (data.imagem is string && data.imagem.size() <= 2048))
+        && data.ingredientes is list && data.ingredientes.size() <= 200
+        && data.passos is list && data.passos.size() <= 200
+        // horário do servidor: o app grava FieldValue.serverTimestamp()
+        && data.atualizadoEm == request.time;
+    }
+
+    match /users/{uid}/receitas/{receitaId} {
+      allow read, delete: if isOwner(uid);
+      allow create, update: if isOwner(uid) && isValidRecipe(request.resource.data);
+    }
+  }
+}

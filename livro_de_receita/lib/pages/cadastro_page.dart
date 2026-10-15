@@ -10,13 +10,10 @@ import 'package:livro_de_receita/models/receita.dart';
 import 'package:livro_de_receita/models/ingrediente.dart';
 import 'package:livro_de_receita/models/passo_preparo.dart';
 import 'package:livro_de_receita/models/categoria.dart';
-import 'package:livro_de_receita/data/dao/receita_dao.dart';
-import 'package:livro_de_receita/data/dao/ingrediente_dao.dart';
-import 'package:livro_de_receita/data/dao/passo_preparo_dao.dart';
-import 'package:livro_de_receita/data/dao/categoria_dao.dart';
+import 'package:livro_de_receita/data/receita_repository.dart';
 
 class Cadastro extends StatefulWidget {
-  final int? recipeId;
+  final String? recipeId;
 
   const Cadastro({super.key, this.recipeId});
   
@@ -100,12 +97,12 @@ class _CadastroState extends State<Cadastro> {
             if (dados['categoriaId'] != null) _categoriaId = dados['categoriaId'];
             if (dados['ingredientes'] != null && _ingredientes.isEmpty) {
               for (var i in dados['ingredientes']) {
-                _ingredientes.add(Ingrediente(nome: i['nome'], quantidade: i['quantidade'], unidadeMedida: i['unidadeMedida'], receitaId: 0));
+                _ingredientes.add(Ingrediente(nome: i['nome'], quantidade: i['quantidade'], unidadeMedida: i['unidadeMedida']));
               }
             }
             if (dados['passos'] != null && _passos.isEmpty) {
               for (var p in dados['passos']) {
-                _passos.add(PassoPreparo(ordem: p['ordem'], descricao: p['descricao'], receitaId: 0, feito: false));
+                _passos.add(PassoPreparo(ordem: p['ordem'], descricao: p['descricao'], feito: false));
               }
             }
           });
@@ -162,30 +159,15 @@ class _CadastroState extends State<Cadastro> {
     _nomeController.dispose();
     super.dispose();
   }
-  // Carrega todas as categorias disponíveis do banco de dados
+  // Carrega as categorias (catálogo fixo do app)
   Future<void> _carregarCategorias() async {
-    try {
-      final categorias = await CategoriaDao.getAll();
-      
-      // Atualiza interface se a tela ainda estiver ativa
-      if (mounted) {
-        setState(() {
-          _categorias = categorias;
-          if (_categoriaId == null && _categorias.isNotEmpty) {
-            _categoriaId = _categorias.first.id;
-          }
-        });
+    if (!mounted) return;
+    setState(() {
+      _categorias = Categoria.todas;
+      if (_categoriaId == null && _categorias.isNotEmpty) {
+        _categoriaId = _categorias.first.id;
       }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao carregar categorias: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
-    }
+    });
   }
 
   // Gerenciamento das Unidades de Medida
@@ -205,7 +187,7 @@ class _CadastroState extends State<Cadastro> {
   Future<void> _carregarReceitaParaEdicao() async {
     if (widget.recipeId == null) return;
     try {
-      final receita = await ReceitaDao.getById(widget.recipeId!);
+      final receita = await ReceitaRepository.atual.getById(widget.recipeId!);
       if (receita == null) {
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
@@ -218,11 +200,6 @@ class _CadastroState extends State<Cadastro> {
         return;
       }
 
-      final ingredientes = await IngredienteDao.getAllByReceita(
-        widget.recipeId!,
-      );
-      final passos = await PassoPreparoDao.getAllByReceita(widget.recipeId!);
-
       if (mounted) {
         setState(() {
           _nomeController.text = receita.titulo;
@@ -231,17 +208,18 @@ class _CadastroState extends State<Cadastro> {
           _dataCadastroOriginal = receita.dataCadastro;
           _ingredientes
             ..clear()
-            ..addAll(ingredientes);
+            ..addAll(receita.ingredientes);
           _passos
             ..clear()
-            ..addAll(passos);
+            ..addAll(receita.passos);
         });
       }
     } catch (e) {
+      debugPrint('Falha ao carregar receita para edição (${e.runtimeType})');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erro ao carregar receita: $e'),
+            content: const Text('Não foi possível carregar a receita. Tente de novo.'),
             backgroundColor: Colors.red.shade600,
           ),
         );
@@ -364,7 +342,6 @@ class _CadastroState extends State<Cadastro> {
           nome: nome,
           quantidade: quantidade,
           unidadeMedida: unidade,
-          receitaId: 0,
         ),
       );
     });
@@ -500,12 +477,10 @@ class _CadastroState extends State<Cadastro> {
                     _salvarUnidade(unidadeController.text);
                     setState(() {
                       _ingredientes[index] = Ingrediente(
-                        id: ingrediente.id,
                         nome: nomeController.text,
                         quantidade:
                             double.tryParse(quantidadeController.text) ?? 0,
                         unidadeMedida: unidadeController.text,
-                        receitaId: ingrediente.receitaId,
                       );
                     });
                     Navigator.pop(context);
@@ -540,7 +515,6 @@ class _CadastroState extends State<Cadastro> {
             PassoPreparo(
               ordem: _passos.length + 1,
               descricao: txt,
-              receitaId: 0,
               feito: false,
             ),
           );
@@ -556,7 +530,6 @@ class _CadastroState extends State<Cadastro> {
         _passos[i] = PassoPreparo(
           ordem: i + 1,
           descricao: _passos[i].descricao,
-          receitaId: _passos[i].receitaId,
           feito: _passos[i].feito,
         );
       }
@@ -664,7 +637,6 @@ class _CadastroState extends State<Cadastro> {
           nome: nome,
           quantidade: quantidade,
           unidadeMedida: unidade,
-          receitaId: 0,
         );
       }
 
@@ -674,7 +646,6 @@ class _CadastroState extends State<Cadastro> {
           nome: partes[0],
           quantidade: double.tryParse(partes[1]) ?? 0,
           unidadeMedida: partes[2],
-          receitaId: 0,
         );
       }
 
@@ -682,7 +653,6 @@ class _CadastroState extends State<Cadastro> {
         nome: textoItem,
         quantidade: 0,
         unidadeMedida: '',
-        receitaId: 0,
       );
     }
 
@@ -725,7 +695,6 @@ class _CadastroState extends State<Cadastro> {
             PassoPreparo(
               ordem: passos.length + 1,
               descricao: textoItem,
-              receitaId: 0,
               feito: false,
             ),
           );
@@ -804,10 +773,8 @@ class _CadastroState extends State<Cadastro> {
                   if (passoController.text.isNotEmpty) {
                     setState(() {
                       _passos[index] = PassoPreparo(
-                        id: passo.id,
                         ordem: passo.ordem,
                         descricao: passoController.text,
-                        receitaId: passo.receitaId,
                         feito: passo.feito,
                       );
                     });
@@ -859,26 +826,13 @@ class _CadastroState extends State<Cadastro> {
             : DateTime.now(),
         categoriaId: _categoriaId!,
         imagem: _imagemAsset,
+        ingredientes: List.of(_ingredientes),
+        passos: List.of(_passos),
       );
 
-      int receitaId;
-      if (_isEditMode) {
-        receitaId = widget.recipeId!;
-        await ReceitaDao.update(receita);
-        await IngredienteDao.deleteByReceita(receitaId);
-        await PassoPreparoDao.deleteByReceita(receitaId);
-      } else {
-        receitaId = await ReceitaDao.insert(receita);
-      }
-
-      for (var ingrediente in _ingredientes) {
-        final ingredienteComId = ingrediente.copyWith(receitaId: receitaId);
-        await IngredienteDao.insert(ingredienteComId);
-      }
-      for (var passo in _passos) {
-        final passoComId = passo.copyWith(receitaId: receitaId);
-        await PassoPreparoDao.insert(passoComId);
-      }
+      // Uma gravação com a receita inteira: fica no aparelho na hora e
+      // vai para a nuvem quando houver conexão
+      ReceitaRepository.atual.save(receita);
 
       if (!_isEditMode) {
         await _apagarRascunho(); // Limpa rascunho após salvar receita com sucesso
@@ -898,11 +852,21 @@ class _CadastroState extends State<Cadastro> {
         );
         Navigator.pop(context, true);
       }
-    } catch (e) {
+    } on ReceitaInvalida catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
-            content: Text('Erro ao salvar receita: $e'),
+            content: Text(e.mensagem),
+            backgroundColor: Colors.red.shade600,
+          ),
+        );
+      }
+    } catch (e) {
+      debugPrint('Falha ao salvar receita (${e.runtimeType})');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: const Text('Não foi possível salvar a receita. Tente de novo.'),
             backgroundColor: Colors.red.shade600,
           ),
         );
@@ -954,6 +918,9 @@ class _CadastroState extends State<Cadastro> {
               const SizedBox(height: 16),
               TextFormField(
                 controller: _nomeController,
+                inputFormatters: [
+                  LengthLimitingTextInputFormatter(tituloMaxLength),
+                ],
                 decoration: InputDecoration(
                   hintText: 'Digite o nome da receita',
                   prefixIcon: const Icon(Icons.restaurant),

@@ -24,6 +24,11 @@ Este guia mostra como compilar e rodar o app no seu celular pela primeira vez e 
 2. Na raiz do projeto, rode:
    - Execute: flutter run
 
+## Firebase (login e receitas)
+- Sem projeto Firebase real configurado, o app usa os emuladores locais: antes do `flutter run`, suba-os com
+  `cd firebase; npm install; npm run emulators` (precisa de JDK 21+). Passo a passo em [FIREBASE.md](FIREBASE.md).
+- O primeiro login precisa de internet (ou dos emuladores no ar); depois o app abre e grava offline.
+
 ## Dicas
 - Se houver mais de um dispositivo, especifique o alvo:
   - Execute: flutter run -d <device_id>

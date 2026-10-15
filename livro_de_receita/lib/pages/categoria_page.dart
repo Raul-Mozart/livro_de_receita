@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:livro_de_receita/pages/cadastro_page.dart';
 import 'package:livro_de_receita/pages/recipe_details_page.dart';
 import 'package:livro_de_receita/widgets/recipe_image_widget.dart';
-import 'package:livro_de_receita/data/dao/receita_dao.dart';
+import 'package:livro_de_receita/data/receita_repository.dart';
 import 'package:livro_de_receita/models/receita.dart';
 
 class CategoriaPage extends StatefulWidget {
@@ -40,31 +40,32 @@ class _CategoriaPageState extends State<CategoriaPage> {
         _isLoading = true;
       });
       
-      final receitas = await ReceitaDao.getAll();
+      final receitas = await ReceitaRepository.atual.getAll();
       // Filtra apenas as receitas da categoria atual
       final receitasCategoria =
           receitas.where((r) => r.categoriaId == widget.categoriaId).toList();
-      
+      if (!mounted) return;
+
       // Atualiza a interface com as receitas carregadas
       setState(() {
         _receitas = receitasCategoria;
         _isLoading = false;
       });
     } catch (e) {
+      debugPrint('Falha ao carregar receitas da categoria (${e.runtimeType})');
+      if (!mounted) return;
       // Em caso de erro, para o carregamento
       setState(() {
         _isLoading = false;
       });
-      
-      // Exibe mensagem de erro se a tela ainda estiver ativa
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao carregar receitas: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+
+      // Exibe mensagem de erro
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Não foi possível carregar as receitas. Puxe a tela para tentar de novo.'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
   }
 

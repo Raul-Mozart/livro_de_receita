@@ -47,3 +47,7 @@ app.*.map.json
 .env
 assets/config/app.env
 backend/node_modules/
+# Firebase: ferramentas locais e registros dos emuladores
+firebase/node_modules/
+*-debug.log
+.firebase/

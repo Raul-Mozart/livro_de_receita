@@ -1,0 +1,15 @@
+{
+  "name": "livro-de-receita-firebase",
+  "private": true,
+  "description": "Regras do Firestore, emuladores e testes das regras do Livro de receitas",
+  "scripts": {
+    "emulators": "firebase emulators:start --project demo-livro-receitas",
+    "test": "firebase emulators:exec --only firestore --project demo-livro-receitas \"node --test test/firestore.rules.test.mjs\"",
+    "deploy:rules": "firebase deploy --only firestore:rules"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "5.0.2",
+    "firebase": "12.19.0",
+    "firebase-tools": "15.32.0"
+  }
+}

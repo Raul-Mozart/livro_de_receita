@@ -7,10 +7,8 @@ import 'package:speech_to_text/speech_recognition_error.dart';
 import 'package:flutter_tts/flutter_tts.dart';
 import 'package:livro_de_receita/pages/cadastro_page.dart';
 import 'package:livro_de_receita/assistant/recipe_assistant_service.dart';
-import 'package:livro_de_receita/data/dao/receita_dao.dart';
-import 'package:livro_de_receita/data/dao/ingrediente_dao.dart';
-import 'package:livro_de_receita/data/dao/passo_preparo_dao.dart';
-import 'package:livro_de_receita/data/dao/categoria_dao.dart';
+import 'package:livro_de_receita/data/receita_repository.dart';
+import 'package:livro_de_receita/models/categoria.dart';
 
 // Tela que exibe os detalhes completos de uma receita
 class RecipeDetailsPage extends StatefulWidget {
@@ -18,7 +16,7 @@ class RecipeDetailsPage extends StatefulWidget {
   final String imageUrl;
   final List<String> ingredients;
   final List<String> instructions;
-  final int? recipeId;
+  final String? recipeId;
 
   // Construtor da página
   const RecipeDetailsPage({
@@ -180,25 +178,22 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
     try {
       // Se tem ID da receita, carrega dados do banco
       if (widget.recipeId != null) {
-        final receita = await ReceitaDao.getById(widget.recipeId!);
+        // Uma leitura traz a receita com ingredientes e passos
+        final receita = await ReceitaRepository.atual.getById(widget.recipeId!);
         if (receita != null) {
           _titulo = receita.titulo;
           _imageUrl = receita.imagem ?? 'assets/images/receita_default.png';
-          final categoria = await CategoriaDao.getById(receita.categoriaId);
-          _categoriaNome = categoria?.nome;
+          _categoriaNome = Categoria.porId(receita.categoriaId)?.nome;
         }
-        final ingredientes = await IngredienteDao.getAllByReceita(
-          widget.recipeId!,
-        );
         // Formata ingredientes como string (quantidade + unidade + nome)
         _loadedIngredients =
-            ingredientes
+            (receita?.ingredientes ?? [])
                 .map((i) => '${i.quantidade} ${i.unidadeMedida} de ${i.nome}')
                 .toList();
 
-        final passos = await PassoPreparoDao.getAllByReceita(widget.recipeId!);
         // Extrai apenas as descrições dos passos
-        _loadedInstructions = passos.map((p) => p.descricao).toList();
+        _loadedInstructions =
+            (receita?.passos ?? []).map((p) => p.descricao).toList();
       } else {
         // Se não tem ID, usa dados passados por parâmetro
         _loadedIngredients = widget.ingredients;
@@ -358,7 +353,8 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
         },
       );
 
-      await ReceitaDao.delete(widget.recipeId!);
+      // Some do aparelho na hora; a nuvem recebe a exclusão quando houver conexão
+      await ReceitaRepository.atual.delete(widget.recipeId!, imagem: _imageUrl);
 
       // Verifica se a tela ainda está ativa
       if (!mounted) return;
@@ -377,6 +373,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
       _allowPop = true;
       Navigator.of(context).pop(true);
     } catch (e) {
+      debugPrint('Falha ao excluir receita (${e.runtimeType})');
       // Verifica se a tela ainda está ativa
       if (!mounted) return;
 
@@ -387,7 +384,7 @@ class _RecipeDetailsPageState extends State<RecipeDetailsPage> {
 
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
-          content: Text('Erro ao excluir receita: $e'),
+          content: Text('Não foi possível excluir a receita. Tente de novo.'),
           backgroundColor: Colors.red,
         ),
       );

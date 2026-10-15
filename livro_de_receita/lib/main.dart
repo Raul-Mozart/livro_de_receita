@@ -1,13 +1,18 @@
+import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:firebase_auth/firebase_auth.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart' as dotenv;
+import 'package:livro_de_receita/data/auth_service.dart';
+import 'package:livro_de_receita/data/firebase_setup.dart';
+import 'package:livro_de_receita/data/migracao_sqlite.dart';
+import 'package:livro_de_receita/data/receita_repository.dart';
 import 'package:livro_de_receita/widgets/appbar_customizado.dart';
+import 'package:livro_de_receita/widgets/auth_gate.dart';
 import 'package:livro_de_receita/pages/cadastro_page.dart';
 import 'package:livro_de_receita/pages/categoria_page.dart';
 import 'package:livro_de_receita/pages/recipe_details_page.dart';
 import 'package:livro_de_receita/widgets/recipe_image_widget.dart';
-import 'package:livro_de_receita/data/db_provider.dart';
 import 'package:livro_de_receita/models/receita.dart';
-import 'package:livro_de_receita/data/dao/receita_dao.dart';
 
 void main() async {
 
@@ -18,22 +23,62 @@ void main() async {
   // (opcional: sem o app.env o assistente funciona só com o interpretador local)
   await dotenv.dotenv.load(fileName: 'assets/config/app.env', isOptional: true);
 
-  // Inicializa o banco de dados antes de executar o app
-  await DBProvider().database;
+  // Firebase: login e banco de receitas (local no aparelho + nuvem)
+  await initFirebase();
 
-  runApp(const MainApp());
+  runApp(MainApp(auth: FirebaseAuthService(FirebaseAuth.instance)));
+}
+
+// Mensagens que aparecem por cima de qualquer tela (ex.: resultado da migração)
+final GlobalKey<ScaffoldMessengerState> _messengerKey = GlobalKey<ScaffoldMessengerState>();
+
+// Conecta as receitas do usuário e copia, uma única vez, o banco antigo do aparelho
+Future<void> _conectarUsuarioFirebase(String uid) async {
+  final repo = ReceitaRepository(firestore: FirebaseFirestore.instance, uid: uid);
+  ReceitaRepository.conectar(repo);
+  try {
+    final copiadas = await migrarBancoAntigo(repo);
+    if (copiadas > 0) {
+      _messengerKey.currentState?.showSnackBar(
+        SnackBar(
+          content: Text(
+            copiadas == 1
+                ? '1 receita deste aparelho foi copiada para a sua conta.'
+                : '$copiadas receitas deste aparelho foram copiadas para a sua conta.',
+          ),
+          backgroundColor: Colors.green.shade600,
+        ),
+      );
+    }
+  } catch (e) {
+    // Sem a marca de migração, tenta de novo na próxima abertura (cópia não duplica)
+    debugPrint('Migração do banco antigo falhou (${e.runtimeType})');
+  }
 }
 
 class MainApp extends StatelessWidget {
-  const MainApp({super.key});
+  const MainApp({
+    super.key,
+    required this.auth,
+    this.conectarUsuario = _conectarUsuarioFirebase,
+  });
+
+  final AuthService auth;
+  final Future<void> Function(String uid) conectarUsuario;
 
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
       debugShowCheckedModeBanner: false,
+      scaffoldMessengerKey: _messengerKey,
       initialRoute: '/',
       routes: {
-        '/': (context) => LivroDeReceitas(),
+        '/': (context) => AuthGate(
+              auth: auth,
+              onSignedIn: conectarUsuario,
+              onSignedOut: ReceitaRepository.desconectar,
+              home: LivroDeReceitas(auth: auth),
+            ),
         '/cadastro': (context) => const Cadastro(),
       },
       // Configuração do tema global do app
@@ -83,8 +128,11 @@ class MainApp extends StatelessWidget {
 
 // Tela principal do livro de receitas (com estado)
 class LivroDeReceitas extends StatefulWidget {
-  const LivroDeReceitas({super.key});
-  
+  const LivroDeReceitas({super.key, this.auth});
+
+  // Conta conectada (menu com o e-mail e a opção de sair)
+  final AuthService? auth;
+
   @override
   State<StatefulWidget> createState() => _LivroDeReceitas();
 }
@@ -110,8 +158,9 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
         _isLoading = true;
       });
       
-      final receitas = await ReceitaDao.getAll();
-      
+      final receitas = await ReceitaRepository.atual.getAll();
+      if (!mounted) return;
+
       setState(() {
         _salgados = receitas.where((r) => r.categoriaId == 1).toList();
         _doces = receitas.where((r) => r.categoriaId == 2).toList();
@@ -119,21 +168,53 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
         _isLoading = false;
       });
     } catch (e) {
+      debugPrint('Falha ao carregar receitas (${e.runtimeType})');
+      if (!mounted) return;
       // Para carregamento em caso de erro
       setState(() {
         _isLoading = false;
       });
-      
-      // Exibe mensagem de erro se a tela ainda estiver ativa
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Erro ao carregar receitas: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+
+      // Exibe mensagem de erro
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Não foi possível carregar as receitas. Puxe a tela para tentar de novo.'),
+          backgroundColor: Colors.red,
+        ),
+      );
     }
+  }
+
+  // Sai da conta; avisa se ainda há alterações que não chegaram à nuvem
+  Future<void> _sair() async {
+    final auth = widget.auth;
+    if (auth == null) return;
+    final enviado = await ReceitaRepository.atual.waitForPendingWrites();
+    if (!enviado && mounted) {
+      final sairMesmoAssim = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+          title: const Text('Alterações ainda não enviadas'),
+          content: const Text(
+            'Algumas alterações ainda não chegaram à nuvem (sem internet?). '
+            'Se sair agora, elas podem não ser enviadas. '
+            'Conecte-se à internet e tente sair de novo.',
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: const Text('Cancelar'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text('Sair mesmo assim', style: TextStyle(color: Colors.red.shade600)),
+            ),
+          ],
+        ),
+      );
+      if (sairMesmoAssim != true) return;
+    }
+    await auth.signOut();
   }
   void _navegarParaDetalhesReceita(BuildContext context, Receita recipe) async {
     // Obtém referência do Navigator para uso seguro
@@ -181,7 +262,11 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: const AppbarCustomizado(),
+      appBar: AppbarCustomizado(
+        aoCriarReceita: _carregarReceitas,
+        emailUsuario: widget.auth?.currentEmail,
+        aoSair: widget.auth == null ? null : _sair,
+      ),
       body:
           // Estado 1: Carregando dados
           _isLoading
