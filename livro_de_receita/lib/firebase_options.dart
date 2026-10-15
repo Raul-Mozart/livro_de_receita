@@ -42,6 +42,6 @@ class DefaultFirebaseOptions {
     appId: '1:000000000000:ios:0000000000000000000000',
     messagingSenderId: '000000000000',
     projectId: 'demo-livro-receitas',
-    iosBundleId: 'com.example.livroDeReceita',
+    iosBundleId: 'com.raulmozart.livroDeReceitas',
   );
 }

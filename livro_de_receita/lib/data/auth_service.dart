@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:firebase_auth/firebase_auth.dart';
+import 'package:flutter/foundation.dart';
 
 // Falha de login/cadastro com mensagem pronta para o usuário
 class AuthFailure implements Exception {
@@ -87,6 +88,8 @@ class FirebaseAuthService implements AuthService {
     try {
       await action().timeout(timeout);
     } on FirebaseAuthException catch (e) {
+      // Só o código no log (a mensagem do Firebase pode conter o e-mail)
+      debugPrint('Firebase Auth: falha (${e.code})');
       throw AuthFailure(mensagemErroAuth(e.code));
     } on TimeoutException {
       throw const AuthFailure('O servidor não respondeu. Confira a internet e tente de novo.');

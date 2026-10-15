@@ -69,6 +69,7 @@ class MainApp extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
+      title: 'Livro de Receitas',
       debugShowCheckedModeBanner: false,
       scaffoldMessengerKey: _messengerKey,
       initialRoute: '/',

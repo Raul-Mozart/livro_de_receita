@@ -1,4 +1,4 @@
-package com.example.lista_de_compras
+package com.raulmozart.livro_de_receitas
 
 import io.flutter.embedding.android.FlutterActivity
 

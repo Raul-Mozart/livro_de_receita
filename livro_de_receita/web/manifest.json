@@ -1,6 +1,6 @@
 {
-    "name": "lista_de_compras",
-    "short_name": "lista_de_compras",
+    "name": "Livro de Receitas",
+    "short_name": "Receitas",
     "start_url": ".",
     "display": "standalone",
     "background_color": "#0175C2",

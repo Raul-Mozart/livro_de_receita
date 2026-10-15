@@ -28,6 +28,10 @@ flutter run -d emulator-5554      # projeto demo-... liga os emuladores sozinho 
 
 Testes das regras: `cd firebase; npm test`.
 
+## Identificadores do app (registrar no Firebase)
+- Android: `com.raulmozart.livro_de_receitas` · iOS/macOS: `com.raulmozart.livroDeReceitas`.
+- Até 2026-10-15 o Android usava `com.example.lista_de_compras`: para o aparelho é **outro app**, com outro banco.
+
 ## Criar o projeto real (uma vez)
 1. https://console.firebase.google.com → **Adicionar projeto** (o Google Analytics pode ficar desligado).
 2. **Authentication → Método de login → E-mail/senha → Ativar.**
@@ -47,6 +51,20 @@ Testes das regras: `cd firebase; npm test`.
    arquivo identifica o projeto (não é segredo); a proteção dos dados vem das regras do Firestore.
 5. `flutter run` de novo: agora o app fala com a nuvem. Para voltar aos emuladores com o projeto real:
    `flutter run --dart-define=USE_FIREBASE_EMULATOR=true`.
+
+## Trazer as receitas do app antigo (`com.example.lista_de_compras`)
+O app novo só copia sozinho o `receitas.db` que está na **própria** pasta. Num aparelho com o app antigo, copie o banco
+de um app para o outro antes de abrir o app novo (os dois precisam ser builds de depuração; o arquivo não sai do aparelho):
+
+```powershell
+adb -s <serial> install build\app\outputs\flutter-apk\app-debug.apk
+adb -s <serial> shell "run-as com.example.lista_de_compras cat databases/receitas.db > /data/local/tmp/r.db"
+adb -s <serial> shell "run-as com.raulmozart.livro_de_receitas sh -c 'mkdir -p databases && cp /data/local/tmp/r.db databases/receitas.db && chmod 700 databases && chmod 600 databases/receitas.db'"
+adb -s <serial> shell rm /data/local/tmp/r.db
+```
+
+Depois: abrir o app novo, entrar na conta (com internet) e conferir a mensagem "N receitas deste aparelho foram
+copiadas". Só então desinstalar o app antigo (desinstalar apaga o banco dele).
 
 ## Estrutura
 - `firebase.json` / `.firebaserc` — configuração do Firebase CLI (emuladores, regras).

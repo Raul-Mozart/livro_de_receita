@@ -10,7 +10,8 @@
 - Receitas na nuvem por usuário (Firebase), funcionando sem internet (A-008, ADR-015). Fotos ainda locais (T-041).
 
 ## Stack
-- Flutter 3.47 / Dart 3.x, Material. Pacote `livro_de_receita`; id Android `com.example.lista_de_compras` (sobra; D-008).
+- Flutter 3.47 / Dart 3.x, Material. Pacote `livro_de_receita`; id Android `com.raulmozart.livro_de_receitas`,
+  iOS/macOS `com.raulmozart.livroDeReceitas`; nome exibido "Livro de Receitas".
 - Dados: `firebase_core`, `firebase_auth`, `cloud_firestore`; `sqflite` só para migrar o banco antigo (D-009).
   Dev: `fake_cloud_firestore`. Dependência nova → justificar em ADR (regra 04).
 - Voz: `speech_to_text` (cópia ajustada em `third_party/`), `flutter_tts`; `backend/` Node guarda a chave da IA.
@@ -34,8 +35,8 @@
 - Gravar no Firestore **sem await** na tela (offline a Future só termina com o servidor; card firestore-escrita-offline).
 - Mensagem de erro ao usuário sem `$e`; log só com tipo/código (`debugPrint`), nunca dado da receita ou e-mail.
 - Limite novo de campo: mudar junto `receita_repository.dart` (problemaNaReceita) e `firebase/firestore.rules` + testes.
-- Inspecionar banco antigo no emulador: `adb exec-out run-as com.example.lista_de_compras cat databases/receitas.db`
-  (redirecionar com `cmd /c`, não com o `>` do PowerShell).
+- Banco antigo do app anterior (`com.example.lista_de_compras`): copiar para o app novo dentro do aparelho
+  (`docs/FIREBASE.md`); para ler no PC, `adb exec-out run-as ... cat databases/receitas.db` redirecionado com `cmd /c`.
 
 ## Versionamento
 - Repositório em `../` (`Livro de receitas/.git`): `origin` = github.com/Raul-Mozart/livro_de_receita (**privado**), branch `main`.
@@ -45,3 +46,5 @@
 - 2026-10-14 · Firebase no lugar do SQLite: Firestore + Auth e-mail/senha no plano Spark; fotos no Storage só com Blaze
   (bucket us-central1). Supabase e AWS descartados (A-008, ADR-015).
 - 2026-10-14 · Categorias fixas no código; DAOs e `db_provider.dart` removidos; banco antigo vira cópia de segurança.
+- 2026-10-15 · Identificador `com.example.lista_de_compras` → `com.raulmozart.livro_de_receitas` antes de criar o projeto
+  Firebase (D-008); app antigo = outro app no aparelho: receitas vêm por cópia manual do `receitas.db` (T-046).
