@@ -1,6 +1,6 @@
-// Configuração PROVISÓRIA do Firebase: o projeto "demo-livro-receitas" só existe nos emuladores locais
-// (veja docs/FIREBASE.md). Este arquivo é substituído ao rodar `flutterfire configure`
-// com o projeto real; a classe e os nomes abaixo seguem o formato gerado pelo FlutterFire.
+// Configuração do Firebase do projeto real "livro-de-receitas-97927", gerada por `flutterfire configure`
+// (veja docs/FIREBASE.md). A chave de API identifica o projeto e não é segredo: quem protege os dados
+// são as regras em firebase/firestore.rules. Emuladores locais: --dart-define=USE_FIREBASE_EMULATOR=true.
 // ignore_for_file: type=lint
 import 'package:firebase_core/firebase_core.dart' show FirebaseOptions;
 import 'package:flutter/foundation.dart'
@@ -24,24 +24,29 @@ class DefaultFirebaseOptions {
   }
 
   static const FirebaseOptions web = FirebaseOptions(
-    apiKey: 'demo-api-key',
-    appId: '1:000000000000:web:0000000000000000000000',
-    messagingSenderId: '000000000000',
-    projectId: 'demo-livro-receitas',
+    apiKey: 'AIzaSyB-fCV6FpvgoO2YMwzg7qgTquQWpqBSDn8',
+    appId: '1:534341435631:web:ea206d28d5f6d02b231b1a',
+    messagingSenderId: '534341435631',
+    projectId: 'livro-de-receitas-97927',
+    authDomain: 'livro-de-receitas-97927.firebaseapp.com',
+    storageBucket: 'livro-de-receitas-97927.firebasestorage.app',
+    measurementId: 'G-WS96ME6BFP',
   );
 
   static const FirebaseOptions android = FirebaseOptions(
-    apiKey: 'demo-api-key',
-    appId: '1:000000000000:android:0000000000000000000000',
-    messagingSenderId: '000000000000',
-    projectId: 'demo-livro-receitas',
+    apiKey: 'AIzaSyCoEyqNcbU0j6Dg5Ckr7gR9UlcTuFh8gwM',
+    appId: '1:534341435631:android:aa083a83dc81cd8d231b1a',
+    messagingSenderId: '534341435631',
+    projectId: 'livro-de-receitas-97927',
+    storageBucket: 'livro-de-receitas-97927.firebasestorage.app',
   );
 
   static const FirebaseOptions ios = FirebaseOptions(
-    apiKey: 'demo-api-key',
-    appId: '1:000000000000:ios:0000000000000000000000',
-    messagingSenderId: '000000000000',
-    projectId: 'demo-livro-receitas',
+    apiKey: 'AIzaSyCYDTcJNGtbzyaAp6k0PmVSycsqdKAEMjY',
+    appId: '1:534341435631:ios:29335c59df9554de231b1a',
+    messagingSenderId: '534341435631',
+    projectId: 'livro-de-receitas-97927',
+    storageBucket: 'livro-de-receitas-97927.firebasestorage.app',
     iosBundleId: 'com.raulmozart.livroDeReceitas',
   );
 }

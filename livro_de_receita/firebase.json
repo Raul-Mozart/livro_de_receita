@@ -16,5 +16,26 @@
       "enabled": false
     },
     "singleProjectMode": true
+  },
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "livro-de-receitas-97927",
+          "appId": "1:534341435631:android:aa083a83dc81cd8d231b1a",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "livro-de-receitas-97927",
+          "configurations": {
+            "android": "1:534341435631:android:aa083a83dc81cd8d231b1a",
+            "ios": "1:534341435631:ios:29335c59df9554de231b1a",
+            "web": "1:534341435631:web:ea206d28d5f6d02b231b1a"
+          }
+        }
+      }
+    }
   }
 }

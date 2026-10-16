@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "534341435631",
+    "project_id": "livro-de-receitas-97927",
+    "storage_bucket": "livro-de-receitas-97927.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:534341435631:android:aa083a83dc81cd8d231b1a",
+        "android_client_info": {
+          "package_name": "com.raulmozart.livro_de_receitas"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyCoEyqNcbU0j6Dg5Ckr7gR9UlcTuFh8gwM"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

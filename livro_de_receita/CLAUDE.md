@@ -20,7 +20,8 @@
 - `flutter pub get` · `flutter test` · `flutter analyze` · `flutter run -d emulator-5554`.
 - Emuladores Firebase (JDK 21+; o `java` do PATH é 1.8): `cd firebase; $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'; npm run emulators`.
 - Regras do Firestore: `cd firebase; npm test` (não rodar dois `emulators:*` ao mesmo tempo: portas 8080/9099/4400).
-- Projeto real: `docs/FIREBASE.md` (`flutterfire configure` reescreve `lib/firebase_options.dart`; hoje é o demo).
+- Projeto real `livro-de-receitas-97927` (`docs/FIREBASE.md`); app contra emuladores: `--dart-define=USE_FIREBASE_EMULATOR=true`.
+- Firebase CLI só via `npx` em `firebase/` (`npx firebase login` → `npx firebase login <código>`); `npm run deploy:rules`.
 
 ## Estrutura
 - `lib/data/firebase_setup.dart` init + banco local ilimitado + emulador (`demo-*` liga sozinho; Android = 10.0.2.2).
@@ -48,3 +49,5 @@
 - 2026-10-14 · Categorias fixas no código; DAOs e `db_provider.dart` removidos; banco antigo vira cópia de segurança.
 - 2026-10-15 · Identificador `com.example.lista_de_compras` → `com.raulmozart.livro_de_receitas` antes de criar o projeto
   Firebase (D-008); app antigo = outro app no aparelho: receitas vêm por cópia manual do `receitas.db` (T-046).
+- 2026-10-15 · Projeto real `livro-de-receitas-97927` (T-040): apps Android/iOS/web pelo `flutterfire configure`;
+  plugin `com.google.gms.google-services` 4.4.4 mantido (build OK com AGP 9.1); regras publicadas.
