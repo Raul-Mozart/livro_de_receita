@@ -18,7 +18,8 @@
 
 ## Comandos (Flutter em `C:\src\flutter\bin`, fora do PATH do Git Bash)
 - `flutter pub get` · `flutter test` · `flutter analyze` · `flutter run -d emulator-5554`.
-- Emuladores Firebase (JDK 21+; o `java` do PATH é 1.8): `cd firebase; $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'; npm run emulators`.
+- Emuladores Firebase (JDK 21+; o `java` do PATH é 1.8): `cd firebase; $env:JAVA_HOME='C:\Program Files\Android\Android Studio\jbr'; $env:Path="$env:JAVA_HOME\bin;$env:Path"; npm run emulators`
+  (o firebase-tools usa o `java` do PATH: só `JAVA_HOME` não basta).
 - Regras do Firestore: `cd firebase; npm test` (não rodar dois `emulators:*` ao mesmo tempo: portas 8080/9099/4400).
 - Projeto real `livro-de-receitas-97927` (`docs/FIREBASE.md`); app contra emuladores: `--dart-define=USE_FIREBASE_EMULATOR=true`.
 - Firebase CLI só via `npx` em `firebase/` (`npx firebase login` → `npx firebase login <código>`); `npm run deploy:rules`.

@@ -17,6 +17,7 @@ Requisitos: Node 20+ e **JDK 21+** (o JBR do Android Studio serve).
 cd firebase
 npm install                       # uma vez
 $env:JAVA_HOME = 'C:\Program Files\Android\Android Studio\jbr'
+$env:Path = "$env:JAVA_HOME\bin;$env:Path"   # o firebase-tools usa o java do PATH
 npm run emulators                 # Auth em :9099 e Firestore em :8080
 ```
 

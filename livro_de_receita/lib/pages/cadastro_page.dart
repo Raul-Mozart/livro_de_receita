@@ -357,8 +357,7 @@ class _CadastroState extends State<Cadastro> {
       text: ingrediente.unidadeMedida,
     );
 
-    await showDialog(
-      context: context,
+    await _abrirDialogo(
       builder:
           (context) => AlertDialog(
             backgroundColor: Colors.white,
@@ -538,8 +537,7 @@ class _CadastroState extends State<Cadastro> {
 
   Future<void> _abrirImportacaoReceita() async {
     final textoController = TextEditingController();
-    await showDialog(
-      context: context,
+    await _abrirDialogo(
       builder:
           (context) => AlertDialog(
             backgroundColor: Colors.white,
@@ -736,8 +734,7 @@ class _CadastroState extends State<Cadastro> {
     final passo = _passos[index];
     final passoController = TextEditingController(text: passo.descricao);
 
-    await showDialog(
-      context: context,
+    await _abrirDialogo(
       builder:
           (context) => AlertDialog(
             backgroundColor: Colors.white,
@@ -872,6 +869,13 @@ class _CadastroState extends State<Cadastro> {
         );
       }
     }
+  }
+
+  // Abre um diálogo sem foco em campo da tela: ao fechar, o Flutter devolveria o foco ao último
+  // campo (o nome), reabrindo o teclado e rolando a página até o topo (B-001)
+  Future<T?> _abrirDialogo<T>({required WidgetBuilder builder}) {
+    FocusManager.instance.primaryFocus?.unfocus();
+    return showDialog<T>(context: context, builder: builder);
   }
 
   @override
@@ -1160,8 +1164,7 @@ class _CadastroState extends State<Cadastro> {
                         final nomeController = TextEditingController();
                         final quantidadeController = TextEditingController();
                         final unidadeController = TextEditingController();
-                        await showDialog(
-                          context: context,
+                        await _abrirDialogo(
                           builder:
                               (context) => AlertDialog(
                                 backgroundColor: Colors.white,
@@ -1384,8 +1387,7 @@ class _CadastroState extends State<Cadastro> {
                     ElevatedButton.icon(
                       onPressed: () async {
                         final passoController = TextEditingController();
-                        await showDialog(
-                          context: context,
+                        await _abrirDialogo(
                           builder:
                               (context) => AlertDialog(
                                 backgroundColor: Colors.white,
