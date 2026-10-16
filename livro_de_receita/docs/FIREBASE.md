@@ -69,8 +69,19 @@ adb -s <serial> shell "run-as com.raulmozart.livro_de_receitas sh -c 'mkdir -p d
 adb -s <serial> shell rm /data/local/tmp/r.db
 ```
 
+As fotos do app antigo ficam na pasta privada dele (`cache/scaled_*.jpg`), que o app novo não lê. Copie cada foto
+citada na coluna `imagem` da tabela `receita` para `app_flutter/fotos_app_antigo/` do app novo; ao entrar na conta,
+o app troca o caminho das receitas para a cópia ("N fotos do app anterior foram recuperadas"):
+
+```powershell
+$f = 'scaled_123.jpg'   # nome do arquivo no fim do caminho da coluna imagem
+adb -s <serial> shell "run-as com.example.lista_de_compras cat cache/$f > /data/local/tmp/$f"
+adb -s <serial> shell "run-as com.raulmozart.livro_de_receitas sh -c 'mkdir -p app_flutter/fotos_app_antigo && chmod 700 app_flutter/fotos_app_antigo && cp /data/local/tmp/$f app_flutter/fotos_app_antigo/$f'"
+adb -s <serial> shell rm /data/local/tmp/$f
+```
+
 Depois: abrir o app novo, entrar na conta (com internet) e conferir a mensagem "N receitas deste aparelho foram
-copiadas". Só então desinstalar o app antigo (desinstalar apaga o banco dele).
+copiadas" (e a das fotos). Só então desinstalar o app antigo (desinstalar apaga o banco e as fotos dele).
 
 ## Estrutura
 - `firebase.json` / `.firebaserc` — configuração do Firebase CLI (emuladores, regras, apps do FlutterFire).

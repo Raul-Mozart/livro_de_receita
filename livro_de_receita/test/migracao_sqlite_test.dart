@@ -1,7 +1,12 @@
+import 'dart:io';
+
 import 'package:fake_cloud_firestore/fake_cloud_firestore.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:livro_de_receita/data/migracao_sqlite.dart';
 import 'package:livro_de_receita/data/receita_repository.dart';
+import 'package:path/path.dart' as p;
+
+import 'fakes.dart';
 
 // Linhas como o sqflite devolvia nas tabelas antigas (receita, ingrediente, passo_preparo)
 final _receitas = <Map<String, Object?>>[
@@ -108,5 +113,65 @@ void main() {
 
     expect(segunda, primeira);
     expect(await repo.getAll(), hasLength(2));
+  });
+
+  group('fotos do app anterior', () {
+    const antiga = '/data/user/0/com.example.lista_de_compras/cache/scaled_123.jpg';
+    const naoCopiada = '/data/user/0/com.example.lista_de_compras/cache/scaled_999.jpg';
+    late Directory documentos;
+    late ReceitaRepository repo;
+
+    setUp(() {
+      documentos = Directory.systemTemp.createTempSync('livro_docs_');
+      repo = ReceitaRepository(firestore: FakeFirebaseFirestore(), uid: 'u1');
+    });
+
+    tearDown(() => documentos.deleteSync(recursive: true));
+
+    File copiarFoto(String nome) =>
+        File(p.join(documentos.path, pastaFotosAppAntigo, nome))
+          ..createSync(recursive: true)
+          ..writeAsBytesSync([0xff, 0xd8, 0xff]);
+
+    Future<String?> imagemDe(String id) async => (await repo.getById(id))?.imagem;
+
+    test('aponta para a cópia e marca como feito', () async {
+      repo.save(receitaExemplo(id: 'a', titulo: 'Com foto', imagem: antiga));
+      repo.save(receitaExemplo(id: 'b', titulo: 'Asset', imagem: 'assets/images/bolo.png'));
+      repo.save(receitaExemplo(id: 'c', titulo: 'Sem foto'));
+      final copia = copiarFoto('scaled_123.jpg');
+
+      expect(await repararFotosDoAppAntigo(repo, pastaDocumentos: documentos.path), 1);
+      expect(await imagemDe('a'), copia.path);
+      expect(await imagemDe('b'), 'assets/images/bolo.png');
+      expect(await imagemDe('c'), isNull);
+      expect(File(p.join(documentos.path, arquivoMarcaFotos)).existsSync(), isTrue);
+
+      // Com a marca, não lê as receitas de novo
+      repo.save(receitaExemplo(id: 'd', titulo: 'Depois', imagem: antiga));
+      expect(await repararFotosDoAppAntigo(repo, pastaDocumentos: documentos.path), 0);
+      expect(await imagemDe('d'), antiga);
+    });
+
+    test('foto ainda não copiada: não muda e tenta de novo depois', () async {
+      repo.save(receitaExemplo(id: 'a', titulo: 'Com foto', imagem: antiga));
+      repo.save(receitaExemplo(id: 'b', titulo: 'Sem cópia', imagem: naoCopiada));
+      copiarFoto('scaled_123.jpg');
+
+      expect(await repararFotosDoAppAntigo(repo, pastaDocumentos: documentos.path), 1);
+      expect(await imagemDe('b'), naoCopiada);
+      expect(File(p.join(documentos.path, arquivoMarcaFotos)).existsSync(), isFalse);
+
+      final copia = copiarFoto('scaled_999.jpg');
+      expect(await repararFotosDoAppAntigo(repo, pastaDocumentos: documentos.path), 1);
+      expect(await imagemDe('b'), copia.path);
+    });
+
+    test('sem a pasta das fotos copiadas não faz nada', () async {
+      repo.save(receitaExemplo(id: 'a', titulo: 'Com foto', imagem: antiga));
+
+      expect(await repararFotosDoAppAntigo(repo, pastaDocumentos: documentos.path), 0);
+      expect(await imagemDe('a'), antiga);
+    });
   });
 }

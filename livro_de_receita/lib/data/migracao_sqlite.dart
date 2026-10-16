@@ -128,3 +128,41 @@ Future<int> migrarBancoAntigo(ReceitaRepository repo) async {
   );
   return receitas.length;
 }
+
+// Fotos do app anterior (com.example.lista_de_compras) ficavam na pasta privada dele, que este app não lê.
+// Copiadas por adb para <documentos>/fotos_app_antigo (docs/FIREBASE.md), as receitas passam a usar a cópia.
+const String pacoteAntigo = 'com.example.lista_de_compras';
+const String pastaFotosAppAntigo = 'fotos_app_antigo';
+const String arquivoMarcaFotos = 'fotos_app_antigo.json';
+
+// Aponta as receitas com foto do app anterior para a cópia em <documentos>/fotos_app_antigo e devolve
+// quantas corrigiu. Só marca como feito quando nenhuma receita aponta mais para o app anterior
+// (foto ainda não copiada: tenta de novo na próxima abertura).
+Future<int> repararFotosDoAppAntigo(ReceitaRepository repo, {String? pastaDocumentos}) async {
+  pastaDocumentos ??= (await getApplicationDocumentsDirectory()).path;
+  final marca = File(p.join(pastaDocumentos, arquivoMarcaFotos));
+  if (await marca.exists()) return 0;
+  final pastaFotos = p.join(pastaDocumentos, pastaFotosAppAntigo);
+  if (!await Directory(pastaFotos).exists()) return 0;
+
+  var corrigidas = 0;
+  var pendentes = 0;
+  for (final receita in await repo.getAll()) {
+    final imagem = receita.imagem;
+    if (imagem == null || !imagem.contains('/$pacoteAntigo/')) continue;
+    final copia = p.join(pastaFotos, p.basename(imagem));
+    if (await File(copia).exists()) {
+      receita.imagem = copia;
+      repo.save(receita);
+      corrigidas++;
+    } else {
+      pendentes++;
+    }
+  }
+  if (pendentes == 0) {
+    await marca.writeAsString(
+      jsonEncode({'fotos': corrigidas, 'data': DateTime.now().toIso8601String()}),
+    );
+  }
+  return corrigidas;
+}

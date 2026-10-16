@@ -32,27 +32,40 @@ void main() async {
 // Mensagens que aparecem por cima de qualquer tela (ex.: resultado da migração)
 final GlobalKey<ScaffoldMessengerState> _messengerKey = GlobalKey<ScaffoldMessengerState>();
 
-// Conecta as receitas do usuário e copia, uma única vez, o banco antigo do aparelho
+void _avisar(String mensagem) {
+  _messengerKey.currentState?.showSnackBar(
+    SnackBar(content: Text(mensagem), backgroundColor: Colors.green.shade600),
+  );
+}
+
+// Conecta as receitas do usuário e copia, uma única vez, o banco antigo do aparelho e as fotos dele
 Future<void> _conectarUsuarioFirebase(String uid) async {
   final repo = ReceitaRepository(firestore: FirebaseFirestore.instance, uid: uid);
   ReceitaRepository.conectar(repo);
   try {
     final copiadas = await migrarBancoAntigo(repo);
     if (copiadas > 0) {
-      _messengerKey.currentState?.showSnackBar(
-        SnackBar(
-          content: Text(
-            copiadas == 1
-                ? '1 receita deste aparelho foi copiada para a sua conta.'
-                : '$copiadas receitas deste aparelho foram copiadas para a sua conta.',
-          ),
-          backgroundColor: Colors.green.shade600,
-        ),
+      _avisar(
+        copiadas == 1
+            ? '1 receita deste aparelho foi copiada para a sua conta.'
+            : '$copiadas receitas deste aparelho foram copiadas para a sua conta.',
       );
     }
   } catch (e) {
     // Sem a marca de migração, tenta de novo na próxima abertura (cópia não duplica)
     debugPrint('Migração do banco antigo falhou (${e.runtimeType})');
+  }
+  try {
+    final fotos = await repararFotosDoAppAntigo(repo);
+    if (fotos > 0) {
+      _avisar(
+        fotos == 1
+            ? '1 foto do app anterior foi recuperada.'
+            : '$fotos fotos do app anterior foram recuperadas.',
+      );
+    }
+  } catch (e) {
+    debugPrint('Reparo das fotos do app anterior falhou (${e.runtimeType})');
   }
 }
 
