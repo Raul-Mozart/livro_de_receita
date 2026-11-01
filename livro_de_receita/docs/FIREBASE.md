@@ -58,8 +58,11 @@ Testes das regras: `cd firebase; npm test` (sempre no `demo-livro-receitas`).
    Reescreve `lib/firebase_options.dart`, `android/app/google-services.json` e a seção `flutter` do `firebase.json`.
    As chaves de API desses arquivos identificam o projeto (não são segredo); a proteção vem das regras do Firestore.
 
-## Trazer as receitas do app antigo (`com.example.lista_de_compras`)
-O app novo só copia sozinho o `receitas.db` que está na **própria** pasta. Num aparelho com o app antigo, copie o banco
+## Trazer as receitas do app antigo (`com.example.lista_de_compras`) · HISTÓRICO
+> **Desativado em 2026-11-01 (D-009):** o app não copia mais o `receitas.db` nem repara as fotos; o único aparelho já
+> tinha migrado. Os passos abaixo só valem com o código de antes (`git show c04dca8:livro_de_receita/lib/data/migracao_sqlite.dart`).
+
+O app novo só copiava sozinho o `receitas.db` que estava na **própria** pasta. Num aparelho com o app antigo, copie o banco
 de um app para o outro antes de abrir o app novo (os dois precisam ser builds de depuração; o arquivo não sai do aparelho):
 
 ```powershell

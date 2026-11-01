@@ -4,7 +4,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart' as dotenv;
 import 'package:livro_de_receita/data/auth_service.dart';
 import 'package:livro_de_receita/data/firebase_setup.dart';
-import 'package:livro_de_receita/data/migracao_sqlite.dart';
 import 'package:livro_de_receita/data/receita_repository.dart';
 import 'package:livro_de_receita/widgets/appbar_customizado.dart';
 import 'package:livro_de_receita/widgets/auth_gate.dart';
@@ -15,7 +14,6 @@ import 'package:livro_de_receita/widgets/recipe_image_widget.dart';
 import 'package:livro_de_receita/models/receita.dart';
 
 void main() async {
-
   // Garante que o Flutter seja inicializado antes de usar plugins
   WidgetsFlutterBinding.ensureInitialized();
 
@@ -29,44 +27,17 @@ void main() async {
   runApp(MainApp(auth: FirebaseAuthService(FirebaseAuth.instance)));
 }
 
-// Mensagens que aparecem por cima de qualquer tela (ex.: resultado da migração)
-final GlobalKey<ScaffoldMessengerState> _messengerKey = GlobalKey<ScaffoldMessengerState>();
+// Mensagens que aparecem por cima de qualquer tela
+final GlobalKey<ScaffoldMessengerState> _messengerKey =
+    GlobalKey<ScaffoldMessengerState>();
 
-void _avisar(String mensagem) {
-  _messengerKey.currentState?.showSnackBar(
-    SnackBar(content: Text(mensagem), backgroundColor: Colors.green.shade600),
-  );
-}
-
-// Conecta as receitas do usuário e copia, uma única vez, o banco antigo do aparelho e as fotos dele
+// Conecta as receitas do usuário autenticado
 Future<void> _conectarUsuarioFirebase(String uid) async {
-  final repo = ReceitaRepository(firestore: FirebaseFirestore.instance, uid: uid);
+  final repo = ReceitaRepository(
+    firestore: FirebaseFirestore.instance,
+    uid: uid,
+  );
   ReceitaRepository.conectar(repo);
-  try {
-    final copiadas = await migrarBancoAntigo(repo);
-    if (copiadas > 0) {
-      _avisar(
-        copiadas == 1
-            ? '1 receita deste aparelho foi copiada para a sua conta.'
-            : '$copiadas receitas deste aparelho foram copiadas para a sua conta.',
-      );
-    }
-  } catch (e) {
-    // Sem a marca de migração, tenta de novo na próxima abertura (cópia não duplica)
-    debugPrint('Migração do banco antigo falhou (${e.runtimeType})');
-  }
-  try {
-    final fotos = await repararFotosDoAppAntigo(repo);
-    if (fotos > 0) {
-      _avisar(
-        fotos == 1
-            ? '1 foto do app anterior foi recuperada.'
-            : '$fotos fotos do app anterior foram recuperadas.',
-      );
-    }
-  } catch (e) {
-    debugPrint('Reparo das fotos do app anterior falhou (${e.runtimeType})');
-  }
 }
 
 class MainApp extends StatelessWidget {
@@ -87,7 +58,8 @@ class MainApp extends StatelessWidget {
       scaffoldMessengerKey: _messengerKey,
       initialRoute: '/',
       routes: {
-        '/': (context) => AuthGate(
+        '/':
+            (context) => AuthGate(
               auth: auth,
               onSignedIn: conectarUsuario,
               onSignedOut: ReceitaRepository.desconectar,
@@ -104,14 +76,14 @@ class MainApp extends StatelessWidget {
           backgroundColor: Colors.red.shade600,
           foregroundColor: Colors.white,
           centerTitle: true,
-          titleTextStyle: TextStyle(
+          titleTextStyle: const TextStyle(
             color: Colors.white,
             fontSize: 20,
             fontWeight: FontWeight.w600,
           ),
-          iconTheme: IconThemeData(color: Colors.white),
+          iconTheme: const IconThemeData(color: Colors.white),
         ),
-        // Tema dos botões elevados 
+        // Tema dos botões elevados
         elevatedButtonTheme: ElevatedButtonThemeData(
           style: ElevatedButton.styleFrom(
             backgroundColor: Colors.red.shade600,
@@ -159,19 +131,20 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
 
   // Indica se está carregando dados
   bool _isLoading = true;
-  
+
   @override
   void initState() {
     super.initState();
     _carregarReceitas();
   }
+
   Future<void> _carregarReceitas() async {
     try {
       // Mostra indicador de carregamento
       setState(() {
         _isLoading = true;
       });
-      
+
       final receitas = await ReceitaRepository.atual.getAll();
       if (!mounted) return;
 
@@ -192,7 +165,9 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
       // Exibe mensagem de erro
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text('Não foi possível carregar as receitas. Puxe a tela para tentar de novo.'),
+          content: Text(
+            'Não foi possível carregar as receitas. Puxe a tela para tentar de novo.',
+          ),
           backgroundColor: Colors.red,
         ),
       );
@@ -207,44 +182,49 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
     if (!enviado && mounted) {
       final sairMesmoAssim = await showDialog<bool>(
         context: context,
-        builder: (context) => AlertDialog(
-          title: const Text('Alterações ainda não enviadas'),
-          content: const Text(
-            'Algumas alterações ainda não chegaram à nuvem (sem internet?). '
-            'Se sair agora, elas podem não ser enviadas. '
-            'Conecte-se à internet e tente sair de novo.',
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: const Text('Cancelar'),
+        builder:
+            (context) => AlertDialog(
+              title: const Text('Alterações ainda não enviadas'),
+              content: const Text(
+                'Algumas alterações ainda não chegaram à nuvem (sem internet?). '
+                'Se sair agora, elas podem não ser enviadas. '
+                'Conecte-se à internet e tente sair de novo.',
+              ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(false),
+                  child: const Text('Cancelar'),
+                ),
+                TextButton(
+                  onPressed: () => Navigator.of(context).pop(true),
+                  child: Text(
+                    'Sair mesmo assim',
+                    style: TextStyle(color: Colors.red.shade600),
+                  ),
+                ),
+              ],
             ),
-            TextButton(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: Text('Sair mesmo assim', style: TextStyle(color: Colors.red.shade600)),
-            ),
-          ],
-        ),
       );
       if (sairMesmoAssim != true) return;
     }
     await auth.signOut();
   }
+
   void _navegarParaDetalhesReceita(BuildContext context, Receita recipe) async {
     // Obtém referência do Navigator para uso seguro
     final navigator = Navigator.of(context);
-    
+
     try {
       if (recipe.id == null) {
         throw Exception('ID da receita é nulo');
       }
-      
+
       // Verifica se a tela ainda está ativa
       if (!mounted) return;
-      
+
       // Define imagem da receita ou usa padrão
       String imageUrl = recipe.imagem ?? 'assets/images/receita_default.png';
-      
+
       // Cria a página de detalhes
       final detailsPage = RecipeDetailsPage(
         title: recipe.titulo,
@@ -253,17 +233,17 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
         instructions: [], // Será carregado na tela de detalhes
         recipeId: recipe.id,
       );
-      
+
       // Verifica novamente se a tela está ativa antes de navegar
       if (!mounted) return;
-      
+
       final result = await navigator.push(
         MaterialPageRoute(builder: (context) => detailsPage),
       );
-      
+
       // Verifica se ainda está ativa após navegação
       if (!mounted) return;
-      
+
       // Se receita foi modificada/excluída, recarrega lista
       if (result == true) {
         _carregarReceitas();
@@ -305,7 +285,7 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      // Seção de Doces
+                      // Seção de Salgados
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
@@ -315,7 +295,7 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
                                   context,
                                   MaterialPageRoute(
                                     builder:
-                                        (context) => CategoriaPage(
+                                        (context) => const CategoriaPage(
                                           categoriaId: 1,
                                           titulo: 'Salgados',
                                           icone: Icons.restaurant,
@@ -331,15 +311,15 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
                                   context,
                                   MaterialPageRoute(
                                     builder:
-                                        (context) => CategoriaPage(
+                                        (context) => const CategoriaPage(
                                           categoriaId: 1,
                                           titulo: 'Salgados',
                                           icone: Icons.restaurant,
                                         ),
                                   ),
                                 ),
-                            icon: Icon(Icons.restaurant, size: 18),
-                            label: Text('Ver Todos'),
+                            icon: const Icon(Icons.restaurant, size: 18),
+                            label: const Text('Ver Todos'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.red.shade600,
                               foregroundColor: Colors.white,
@@ -350,11 +330,11 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
                           ),
                         ],
                       ),
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       // Cards de receitas salgadas
                       _buildRecipeCards(_salgados),
-                      SizedBox(height: 24),
-                      
+                      const SizedBox(height: 24),
+
                       // Seção de Doces
                       Row(
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -365,7 +345,7 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
                                   context,
                                   MaterialPageRoute(
                                     builder:
-                                        (context) => CategoriaPage(
+                                        (context) => const CategoriaPage(
                                           categoriaId: 2,
                                           titulo: 'Doces',
                                           icone: Icons.cake,
@@ -381,15 +361,15 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
                                   context,
                                   MaterialPageRoute(
                                     builder:
-                                        (context) => CategoriaPage(
+                                        (context) => const CategoriaPage(
                                           categoriaId: 2,
                                           titulo: 'Doces',
                                           icone: Icons.cake,
                                         ),
                                   ),
                                 ),
-                            icon: Icon(Icons.cake, size: 18),
-                            label: Text('Ver Todos'),
+                            icon: const Icon(Icons.cake, size: 18),
+                            label: const Text('Ver Todos'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.red.shade600,
                               foregroundColor: Colors.white,
@@ -400,10 +380,10 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
                           ),
                         ],
                       ),
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       // Cards de receitas doces
                       _buildRecipeCards(_doces),
-                      SizedBox(height: 24),
+                      const SizedBox(height: 24),
 
                       // Seção de Bebidas
                       Row(
@@ -416,7 +396,7 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
                                   context,
                                   MaterialPageRoute(
                                     builder:
-                                        (context) => CategoriaPage(
+                                        (context) => const CategoriaPage(
                                           categoriaId: 3,
                                           titulo: 'Bebidas',
                                           icone: Icons.local_drink,
@@ -432,15 +412,15 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
                                   context,
                                   MaterialPageRoute(
                                     builder:
-                                        (context) => CategoriaPage(
+                                        (context) => const CategoriaPage(
                                           categoriaId: 3,
                                           titulo: 'Bebidas',
                                           icone: Icons.local_drink,
                                         ),
                                   ),
                                 ),
-                            icon: Icon(Icons.local_drink, size: 18),
-                            label: Text('Ver Todos'),
+                            icon: const Icon(Icons.local_drink, size: 18),
+                            label: const Text('Ver Todos'),
                             style: ElevatedButton.styleFrom(
                               backgroundColor: Colors.red.shade600,
                               foregroundColor: Colors.white,
@@ -451,7 +431,7 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
                           ),
                         ],
                       ),
-                      SizedBox(height: 16),
+                      const SizedBox(height: 16),
                       // Cards de bebidas
                       _buildRecipeCards(_bebidas),
                     ],
@@ -460,11 +440,12 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
               ),
     );
   }
+
   // Constrói o widget de título de seção estilizado
   Widget _buildSectionTitle(String title) {
     return Text(
       title,
-      style: TextStyle(
+      style: const TextStyle(
         fontSize: 26,
         fontWeight: FontWeight.bold,
         color: Colors.black87,
@@ -486,19 +467,19 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
         ),
       );
     }
-    
+
     // Lista horizontal de receitas
     return SizedBox(
       height: 260, // Altura fixa para scroll horizontal
       child: ListView.builder(
         scrollDirection: Axis.horizontal, // Scroll horizontal
-        padding: EdgeInsets.symmetric(horizontal: 8.0),
+        padding: const EdgeInsets.symmetric(horizontal: 8.0),
         itemCount: recipes.length,
         itemBuilder: (context, index) {
           final recipe = recipes[index];
           // Container com margem para cada card
           return Container(
-            margin: EdgeInsets.only(right: 16.0),
+            margin: const EdgeInsets.only(right: 16.0),
             // Card clicável
             child: InkWell(
               onTap: () => _navegarParaDetalhesReceita(context, recipe),
@@ -523,16 +504,17 @@ class _LivroDeReceitas extends State<LivroDeReceitas> {
                       ),
                     ),
                     // Espaçamento
-                    SizedBox(height: 8),
+                    const SizedBox(height: 8),
                     // Título da receita
                     Text(
                       recipe.titulo,
-                      style: TextStyle(
+                      style: const TextStyle(
                         fontSize: 18,
                         fontWeight: FontWeight.w500,
                       ),
                       maxLines: 2, // Máximo 2 linhas
-                      overflow: TextOverflow.ellipsis, // Reticências se muito longo
+                      overflow:
+                          TextOverflow.ellipsis, // Reticências se muito longo
                     ),
                   ],
                 ),

@@ -24,7 +24,6 @@ O aplicativo foi desenvolvido com o objetivo de facilitar a organização de rec
 ### Banco de Dados
 - **Cloud Firestore** - Receitas na nuvem por usuário, com banco local no aparelho (funciona sem internet)
 - **Firebase Auth** - Login por e-mail e senha
-- **sqflite** - Só para copiar, uma vez, o banco SQLite das versões anteriores
 
 ### Dependências Principais
 ```yaml
@@ -34,7 +33,6 @@ dependencies:
   firebase_core: ^4.15.0     # Inicialização do Firebase
   firebase_auth: ^6.7.0      # Login por e-mail e senha
   cloud_firestore: ^6.10.0   # Banco de receitas (local + nuvem)
-  sqflite: ^2.0.0+4          # Leitura do banco antigo na migração
   path_provider: ^2.0.11     # Acesso a diretórios do sistema
   path: ^1.8.2               # Manipulação de caminhos de arquivos
 
@@ -78,8 +76,7 @@ lib/
 ├── data/                            # Acesso aos dados
 │   ├── firebase_setup.dart          # Inicialização, banco local e emuladores
 │   ├── auth_service.dart            # Login (Firebase Auth) e mensagens de erro
-│   ├── receita_repository.dart      # Receitas no Firestore (users/{uid}/receitas)
-│   └── migracao_sqlite.dart         # Cópia única do banco SQLite antigo
+│   └── receita_repository.dart      # Receitas no Firestore (users/{uid}/receitas)
 └── models/                          # Modelos de dados
     ├── categoria.dart               # Catálogo fixo: Salgados, Doces, Bebidas
     ├── receita.dart                 # Receita com ingredientes e passos dentro
@@ -90,7 +87,7 @@ assets/config/      # Configuração local do assistente (app.env, fora do git)
 backend/            # Servidor do assistente (guarda a chave da IA)
 docs/               # Documentação (banco, Firebase, diagramas, assistente, como rodar)
 firebase/           # Regras do Firestore, emuladores e testes das regras
-test/               # Testes (repositório, migração, login, tela inicial)
+test/               # Testes (repositório, login, tela inicial)
 third_party/        # Cópia ajustada do plugin speech_to_text
 ```
 
@@ -219,7 +216,7 @@ Cada receita é um documento em `users/{uid}/receitas/{id}` no Firestore, com in
 
 ### Testes
 ```bash
-flutter test                 # repositório, migração, login e tela inicial
+flutter test                 # repositório, login e tela inicial
 cd firebase && npm test      # regras do Firestore no emulador (JDK 21+)
 ```
 

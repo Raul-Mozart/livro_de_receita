@@ -102,7 +102,6 @@ tamanhos são conferidos no servidor. Testes das regras: `cd firebase && npm tes
 ## 🗃️ Banco antigo (SQLite)
 
 Versões anteriores guardavam tudo em `receitas.db` (tabelas `categoria`, `receita`, `ingrediente`,
-`passo_preparo`). No primeiro login, `lib/data/migracao_sqlite.dart` copia essas receitas para a conta
-conectada **uma única vez** (marca em `migracao_firestore.json`). Os IDs copiados são fixos
-(`local-<id antigo>-<data em ms>`), então repetir a cópia não duplica receitas. O arquivo antigo continua no
-aparelho como cópia de segurança.
+`passo_preparo`). Até 2026-11-01 o app copiava esse banco para a conta no primeiro login (IDs
+`local-<id antigo>-<data em ms>`, que continuam nas receitas migradas). A cópia automática foi removida (D-009):
+o único aparelho já tinha migrado. Uma cópia do banco antigo fica em `Livro de receitas/backups/` (leitura manual).
