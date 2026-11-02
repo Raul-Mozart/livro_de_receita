@@ -1,0 +1,41 @@
+# T-010 (E-04): flutter analyze + flutter test a cada push/PR no main. Ubuntu: minuto de Linux conta 1x na cota do
+# GitHub (repositório privado). Flutter na mesma versão da máquina de desenvolvimento; atualizar junto com ela.
+name: ci
+
+on:
+  push:
+    branches: [main]
+    paths-ignore: ['docs/**', '**.md']
+  pull_request:
+    branches: [main]
+    paths-ignore: ['docs/**', '**.md']
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: livro_de_receita
+    steps:
+      # Actions fixadas por SHA; atualizar junto com a tag do comentário.
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+        with:
+          persist-credentials: false
+      - uses: subosito/flutter-action@1a449444c387b1966244ae4d4f8c696479add0b2 # v2.23.0
+        with:
+          channel: stable
+          flutter-version: 3.47.7
+          cache: true
+      - run: flutter pub get
+      # --no-fatal-infos: 8 infos antigos em cadastro_page.dart (BACKLOG T-163); tirar quando zerar.
+      - run: flutter analyze --no-fatal-infos
+      - run: flutter test
