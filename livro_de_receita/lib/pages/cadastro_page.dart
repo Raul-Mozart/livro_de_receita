@@ -82,7 +82,9 @@ class _CadastroState extends State<Cadastro> {
         'passos': _passos.map((p) => {'ordem': p.ordem, 'descricao': p.descricao}).toList(),
       };
       await file.writeAsString(jsonEncode(dados));
-    } catch (e) {}
+    } catch (_) {
+      // Rascunho e unidades salvas são best-effort: falha de disco não pode travar o cadastro.
+    }
   }
 
   Future<void> _recuperarRascunho() async {
@@ -94,7 +96,8 @@ class _CadastroState extends State<Cadastro> {
         if (mounted) {
           setState(() {
             if (dados['nome'] != null && _nomeController.text.isEmpty) _nomeController.text = dados['nome'];
-            if (dados['categoriaId'] != null) _categoriaId = dados['categoriaId'];
+            // Id fora do catálogo quebraria o Dropdown (BUG-L03): fica a categoria atual.
+            if (dados['categoriaId'] case final int id when Categoria.porId(id) != null) _categoriaId = id;
             if (dados['ingredientes'] != null && _ingredientes.isEmpty) {
               for (var i in dados['ingredientes']) {
                 _ingredientes.add(Ingrediente(nome: i['nome'], quantidade: i['quantidade'], unidadeMedida: i['unidadeMedida']));
@@ -108,7 +111,9 @@ class _CadastroState extends State<Cadastro> {
           });
         }
       }
-    } catch (e) {}
+    } catch (_) {
+      // Rascunho e unidades salvas são best-effort: falha de disco não pode travar o cadastro.
+    }
   }
 
   Future<void> _apagarRascunho() async {
@@ -116,7 +121,9 @@ class _CadastroState extends State<Cadastro> {
       final dir = await getApplicationDocumentsDirectory();
       final file = File('${dir.path}/rascunho_receita.json');
       if (await file.exists()) await file.delete();
-    } catch (e) {}
+    } catch (_) {
+      // Rascunho e unidades salvas são best-effort: falha de disco não pode travar o cadastro.
+    }
   }
 
   // Método nativo do package image_picker exclusivo para lidar com 
@@ -143,6 +150,7 @@ class _CadastroState extends State<Cadastro> {
         }
       }
       // Um pequeno aviso de que a foto foi recuperada após o sistema fechar a memória
+      if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: const Text('Foto recuperada com sucesso!'),
@@ -181,7 +189,9 @@ class _CadastroState extends State<Cadastro> {
           _unidadesSalvas = dados.map((e) => e.toString()).toSet();
         });
       }
-    } catch (e) {}
+    } catch (_) {
+      // Rascunho e unidades salvas são best-effort: falha de disco não pode travar o cadastro.
+    }
   }
 
   Future<void> _carregarReceitaParaEdicao() async {
@@ -203,7 +213,7 @@ class _CadastroState extends State<Cadastro> {
       if (mounted) {
         setState(() {
           _nomeController.text = receita.titulo;
-          _categoriaId = receita.categoriaId;
+          if (Categoria.porId(receita.categoriaId) != null) _categoriaId = receita.categoriaId;
           _imagemAsset = receita.imagem;
           _dataCadastroOriginal = receita.dataCadastro;
           _ingredientes
@@ -237,7 +247,9 @@ class _CadastroState extends State<Cadastro> {
       final dir = await getApplicationDocumentsDirectory();
       final file = File('${dir.path}/unidades_salvas.json');
       await file.writeAsString(jsonEncode(_unidadesSalvas.toList()));
-    } catch (e) {}
+    } catch (_) {
+      // Rascunho e unidades salvas são best-effort: falha de disco não pode travar o cadastro.
+    }
   }
 
   Future<void> _excluirUnidadeSalva(String unidade) async {
@@ -248,7 +260,9 @@ class _CadastroState extends State<Cadastro> {
       final dir = await getApplicationDocumentsDirectory();
       final file = File('${dir.path}/unidades_salvas.json');
       await file.writeAsString(jsonEncode(_unidadesSalvas.toList()));
-    } catch (e) {}
+    } catch (_) {
+      // Rascunho e unidades salvas são best-effort: falha de disco não pode travar o cadastro.
+    }
   }
 
   void _removerImagem() {
@@ -895,7 +909,9 @@ class _CadastroState extends State<Cadastro> {
               Padding(
                 padding: const EdgeInsets.only(top: 10),
                 child: DropdownButtonFormField<int>(
-                  value: _categoriaId,
+                  // initialValue só vale na criação: a key recria o campo quando a categoria muda por código (rascunho, edição).
+                  key: ValueKey(_categoriaId),
+                  initialValue: _categoriaId,
                   items:
                       _categorias
                           .map(
